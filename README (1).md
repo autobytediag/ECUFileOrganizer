@@ -321,6 +321,6 @@ Developed for automotive diagnostic professionals working with ECU files.
 
 ---
 
-**Made with ❤️ for Uros at Stellantis Norway**
+**Made with ❤️ for automotive proffesionals**
 
 Organize your ECU files effortlessly! 🚗💾
