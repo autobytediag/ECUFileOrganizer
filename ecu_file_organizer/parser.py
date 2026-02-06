@@ -1,8 +1,10 @@
 """Filename parser for Autotuner ECU file naming convention."""
 
+import os
 from datetime import datetime
 
 from ecu_file_organizer.constants import ECU_BRANDS
+from ecu_file_organizer.bin_reader import read_bin_metadata
 
 
 class FileParser:
@@ -72,5 +74,40 @@ class FileParser:
 
         # Clean up ECU name
         parsed['ecu'] = parsed['ecu'].replace('  ', ' ').strip()
+
+        return parsed
+
+    @staticmethod
+    def parse_bin_file(file_path):
+        """
+        Combine filename parsing with BIN file metadata extraction.
+
+        Returns dict with all filename fields plus BIN metadata:
+            sw_version, bosch_sw_number, oem_hw_number,
+            oem_sw_number, engine_code
+        """
+        filename = os.path.basename(file_path)
+        parsed = FileParser.parse_filename(filename)
+
+        # Add empty BIN metadata fields as defaults
+        parsed['sw_version'] = ''
+        parsed['bosch_sw_number'] = ''
+        parsed['oem_hw_number'] = ''
+        parsed['oem_sw_number'] = ''
+        parsed['engine_code'] = ''
+
+        # Try to read BIN metadata
+        if file_path.lower().endswith('.bin') and os.path.isfile(file_path):
+            bin_meta = read_bin_metadata(file_path)
+
+            parsed['sw_version'] = bin_meta.get('sw_version', '')
+            parsed['bosch_sw_number'] = bin_meta.get('bosch_sw_number', '')
+            parsed['oem_hw_number'] = bin_meta.get('oem_hw_number', '')
+            parsed['oem_sw_number'] = bin_meta.get('oem_sw_number', '')
+            parsed['engine_code'] = bin_meta.get('engine_code', '')
+
+            # If BIN has a better ECU type, use it (e.g. EDC17_C46 vs "Bosch EDC17C46")
+            if bin_meta.get('ecu_type'):
+                parsed['ecu'] = bin_meta['ecu_type']
 
         return parsed

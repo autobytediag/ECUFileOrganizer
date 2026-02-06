@@ -435,9 +435,10 @@ class ECUOrganizerMain(QMainWindow):
 
     def handle_new_file(self, file_path):
         """Handle newly detected file"""
-        # Parse filename
         filename = os.path.basename(file_path)
-        parsed_data = FileParser.parse_filename(filename)
+
+        # Parse filename and BIN metadata
+        parsed_data = FileParser.parse_bin_file(file_path)
 
         # Show pop-up form
         self.show_file_form(file_path, parsed_data)
@@ -1053,12 +1054,13 @@ class ECUOrganizerMain(QMainWindow):
         parts = folder_name.split('_')
 
         # Try to extract components
-        # Expected format: Make_Model_Date_ECU_ReadMethod_Mileage_Registration
+        # Expected format: Make_Model_Date_ECU_SW{version}_ReadMethod_Mileage_Registration
         data = {
             'make': '',
             'model': '',
             'date': '',
             'ecu': '',
+            'sw_version': '',
             'read_method': '',
             'mileage': '',
             'registration': ''
@@ -1080,6 +1082,12 @@ class ECUOrganizerMain(QMainWindow):
                 data['mileage'] = parts[i].replace('km', '')
                 break
 
+        # SW Version (part starting with 'SW' followed by digits)
+        for part in parts:
+            if part.startswith('SW') and len(part) > 2 and part[2:].isdigit():
+                data['sw_version'] = part[2:]  # Strip 'SW' prefix
+                break
+
         # Read method (OBD, Bench, Boot, Virtual) - before mileage
         read_method_keywords = ['OBD', 'Bench', 'Boot', 'Virtual']
         for method in read_method_keywords:
@@ -1094,10 +1102,13 @@ class ECUOrganizerMain(QMainWindow):
             if len(part) == 8 and part.isdigit():
                 data['date'] = part
                 data['model'] = '_'.join(model_parts)
-                # Rest is ECU until read method
+                # Rest is ECU until SW version or read method
                 ecu_parts = []
                 for j in range(i+1, len(parts)):
-                    if parts[j] in read_method_keywords or parts[j].endswith('km'):
+                    if (parts[j] in read_method_keywords
+                            or parts[j].endswith('km')
+                            or (parts[j].startswith('SW') and len(parts[j]) > 2
+                                and parts[j][2:].isdigit())):
                         break
                     ecu_parts.append(parts[j])
                 data['ecu'] = '_'.join(ecu_parts)
@@ -1257,6 +1268,10 @@ class ECUOrganizerMain(QMainWindow):
         ecu_input = QLineEdit(data['ecu'])
         form_layout.addRow("ECU Type:", ecu_input)
 
+        sw_version_input = QLineEdit(data.get('sw_version', ''))
+        sw_version_input.setPlaceholderText("e.g., 9978")
+        form_layout.addRow("Software Version:", sw_version_input)
+
         read_method_combo = QComboBox()
         read_method_combo.addItems(READ_METHODS)
         if data['read_method']:
@@ -1292,6 +1307,7 @@ class ECUOrganizerMain(QMainWindow):
             md = model_input.text().strip().replace(' ', '_')
             dt = date_input.text().strip()
             ec = ecu_input.text().strip().replace(' ', '_')
+            sw = sw_version_input.text().strip()
             rm = read_method_combo.currentText()
             ml = mileage_input.text().strip()
             rg = registration_input.text().strip().replace(' ', '_')
@@ -1299,7 +1315,10 @@ class ECUOrganizerMain(QMainWindow):
             read_method_short = rm.replace('Normal Read-', '').replace('Virtual Read-', 'Virtual')
 
             if mk and md:
-                new_name = f"{mk}_{md}_{dt}_{ec}_{read_method_short}"
+                new_name = f"{mk}_{md}_{dt}_{ec}"
+                if sw:
+                    new_name += f"_SW{sw}"
+                new_name += f"_{read_method_short}"
                 if ml:
                     new_name += f"_{ml}km"
                 if rg:
@@ -1314,6 +1333,7 @@ class ECUOrganizerMain(QMainWindow):
         model_input.textChanged.connect(update_preview)
         date_input.textChanged.connect(update_preview)
         ecu_input.textChanged.connect(update_preview)
+        sw_version_input.textChanged.connect(update_preview)
         read_method_combo.currentTextChanged.connect(update_preview)
         mileage_input.textChanged.connect(update_preview)
         registration_input.textChanged.connect(update_preview)
@@ -1350,6 +1370,7 @@ class ECUOrganizerMain(QMainWindow):
             model_input.text().strip(),
             date_input.text().strip(),
             ecu_input.text().strip(),
+            sw_version_input.text().strip(),
             read_method_combo.currentText(),
             mileage_input.text().strip(),
             registration_input.text().strip(),
@@ -1363,8 +1384,8 @@ class ECUOrganizerMain(QMainWindow):
         edit_dialog.setLayout(layout)
         edit_dialog.exec()
 
-    def save_folder_edit(self, old_path, old_make, make, model, date, ecu, read_method,
-                        mileage, registration, edit_dialog, parent_dialog):
+    def save_folder_edit(self, old_path, old_make, make, model, date, ecu, sw_version,
+                        read_method, mileage, registration, edit_dialog, parent_dialog):
         """Save the edited folder information by renaming"""
         # Validation
         if not make or not model:
@@ -1378,7 +1399,10 @@ class ECUOrganizerMain(QMainWindow):
         registration = registration.replace(' ', '_')
         read_method_short = read_method.replace('Normal Read-', '').replace('Virtual Read-', 'Virtual')
 
-        new_folder_name = f"{make}_{model}_{date}_{ecu}_{read_method_short}"
+        new_folder_name = f"{make}_{model}_{date}_{ecu}"
+        if sw_version:
+            new_folder_name += f"_SW{sw_version}"
+        new_folder_name += f"_{read_method_short}"
         if mileage:
             new_folder_name += f"_{mileage}km"
         if registration:

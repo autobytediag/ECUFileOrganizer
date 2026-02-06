@@ -76,6 +76,37 @@ class ECUFormDialog(QWidget):
         self.ecu_input.textChanged.connect(self.update_preview)
         form_layout.addRow("ECU Type:", self.ecu_input)
 
+        # Software Version (from BIN metadata)
+        self.sw_version_input = QLineEdit()
+        self.sw_version_input.setText(parsed_data.get('sw_version', ''))
+        self.sw_version_input.setPlaceholderText("e.g., 9978 (auto-detected from BIN)")
+        self.sw_version_input.textChanged.connect(self.update_preview)
+        form_layout.addRow("Software Version:", self.sw_version_input)
+
+        # Bosch SW Number (from BIN metadata)
+        self.bosch_sw_input = QLineEdit()
+        self.bosch_sw_input.setText(parsed_data.get('bosch_sw_number', ''))
+        self.bosch_sw_input.setPlaceholderText("e.g., 1037563106 (auto-detected from BIN)")
+        form_layout.addRow("Bosch SW Nr:", self.bosch_sw_input)
+
+        # OEM HW Number (from BIN metadata)
+        self.oem_hw_input = QLineEdit()
+        self.oem_hw_input.setText(parsed_data.get('oem_hw_number', ''))
+        self.oem_hw_input.setPlaceholderText("e.g., 03L907309AE (auto-detected from BIN)")
+        form_layout.addRow("OEM HW Nr:", self.oem_hw_input)
+
+        # OEM SW Number (from BIN metadata)
+        self.oem_sw_input = QLineEdit()
+        self.oem_sw_input.setText(parsed_data.get('oem_sw_number', ''))
+        self.oem_sw_input.setPlaceholderText("e.g., 03L906018LE (auto-detected from BIN)")
+        form_layout.addRow("OEM SW Nr:", self.oem_sw_input)
+
+        # Engine Code (from BIN metadata)
+        self.engine_code_input = QLineEdit()
+        self.engine_code_input.setText(parsed_data.get('engine_code', ''))
+        self.engine_code_input.setPlaceholderText("e.g., CFFB (auto-detected from BIN)")
+        form_layout.addRow("Engine Code:", self.engine_code_input)
+
         # Read Method dropdown
         self.read_method_combo = QComboBox()
         self.read_method_combo.addItems(READ_METHODS)
@@ -167,6 +198,7 @@ class ECUFormDialog(QWidget):
         model = self.model_input.text().strip().replace(' ', '_')
         date = self.date_input.text().strip()
         ecu = self.ecu_input.text().strip().replace(' ', '_')
+        sw_version = self.sw_version_input.text().strip()
         read_method = self.read_method_combo.currentText()
         mileage = self.mileage_input.text().strip()
         registration = self.registration_input.text().strip().replace(' ', '_')
@@ -175,7 +207,10 @@ class ECUFormDialog(QWidget):
         read_method_short = read_method.replace('Normal Read-', '').replace('Virtual Read-', 'Virtual')
 
         if make and model:
-            folder_name = f"{make}_{model}_{date}_{ecu}_{read_method_short}"
+            folder_name = f"{make}_{model}_{date}_{ecu}"
+            if sw_version:
+                folder_name += f"_SW{sw_version}"
+            folder_name += f"_{read_method_short}"
             if mileage:
                 folder_name += f"_{mileage}km"
             if registration:
@@ -307,9 +342,16 @@ class ECUFormDialog(QWidget):
         model = self.model_input.text().strip().replace(' ', '_')
         date = self.date_input.text().strip()
         ecu = self.ecu_input.text().strip().replace(' ', '_')
+        sw_version = self.sw_version_input.text().strip()
         read_method = self.read_method_combo.currentText()
         mileage = self.mileage_input.text().strip()
         registration = self.registration_input.text().strip().replace(' ', '_')
+
+        # BIN metadata fields
+        bosch_sw = self.bosch_sw_input.text().strip()
+        oem_hw = self.oem_hw_input.text().strip()
+        oem_sw = self.oem_sw_input.text().strip()
+        engine_code = self.engine_code_input.text().strip()
 
         # Validation
         if not make or not model:
@@ -343,7 +385,10 @@ class ECUFormDialog(QWidget):
             read_method_short = read_method.replace('Normal Read-', '').replace('Virtual Read-', 'Virtual')
 
             # Build destination path
-            folder_name = f"{make}_{model}_{date}_{ecu}_{read_method_short}"
+            folder_name = f"{make}_{model}_{date}_{ecu}"
+            if sw_version:
+                folder_name += f"_SW{sw_version}"
+            folder_name += f"_{read_method_short}"
             if mileage:
                 folder_name += f"_{mileage}km"
             if registration:
@@ -371,7 +416,8 @@ class ECUFormDialog(QWidget):
 
             # Create Log.txt file
             self.create_log_file(dest_folder, make, model, date, ecu, read_method,
-                               mileage, registration, filename, dest_path)
+                               mileage, registration, filename, dest_path,
+                               sw_version, bosch_sw, oem_hw, oem_sw, engine_code)
 
             # Open folder if setting is enabled
             if self.parent_window and self.parent_window.settings.get('open_folder_on_save', False):
@@ -389,7 +435,9 @@ class ECUFormDialog(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to save file:\n{str(e)}")
 
     def create_log_file(self, dest_folder, make, model, date, ecu, read_method,
-                       mileage, registration, filename, dest_path):
+                       mileage, registration, filename, dest_path,
+                       sw_version='', bosch_sw='', oem_hw='', oem_sw='',
+                       engine_code=''):
         """Create or append to Log.txt file with session information"""
         try:
             log_path = os.path.join(dest_folder, "Log.txt")
@@ -435,6 +483,13 @@ Vehicle Information:
   Read Method:    {read_method}
   Mileage:        {mileage} km
   Registration:   {registration}
+
+ECU Metadata (from BIN):
+  Software Version: {sw_version}
+  Bosch SW Number:  {bosch_sw}
+  OEM HW Number:    {oem_hw}
+  OEM SW Number:    {oem_sw}
+  Engine Code:      {engine_code}
 
 Full Path: {dest_path}
 
