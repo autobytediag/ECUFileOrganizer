@@ -64,8 +64,39 @@ jobs:
           choco install upx -y
 
       - name: Build EXE (optimized)
+        shell: python
         run: |
-          pyinstaller ECU_File_Organizer.spec
+          import subprocess, sys
+          excludes = [
+              "QtWebEngine", "QtWebEngineCore", "QtWebEngineWidgets",
+              "QtWebChannel", "QtWebSockets",
+              "Qt3DCore", "Qt3DRender", "Qt3DInput", "Qt3DLogic", "Qt3DAnimation",
+              "QtMultimedia", "QtMultimediaWidgets",
+              "QtBluetooth", "QtNfc", "QtSensors", "QtSerialPort",
+              "QtPositioning", "QtLocation",
+              "QtQuick", "QtQuickWidgets", "QtQml",
+              "QtDesigner", "QtHelp", "QtTest",
+              "QtNetwork", "QtNetworkAuth",
+              "QtOpenGL", "QtOpenGLWidgets",
+              "QtPdf", "QtPdfWidgets",
+              "QtSvg", "QtSvgWidgets",
+              "QtXml", "QtSql",
+              "QtDBus", "QtRemoteObjects",
+              "QtTextToSpeech", "QtSpatialAudio",
+              "tkinter", "unittest", "pydoc", "doctest",
+              "lib2to3", "xmlrpc", "multiprocessing",
+          ]
+          cmd = [
+              sys.executable, "-m", "PyInstaller",
+              "--onefile", "--windowed",
+              "--name", "ECU_File_Organizer",
+          ]
+          for ex in excludes:
+              cmd += ["--exclude-module", ex]
+          cmd.append("ecu_file_organizer.py")
+          print("Running:", " ".join(cmd[:10]), "...")
+          result = subprocess.run(cmd)
+          sys.exit(result.returncode)
 
       - name: Rename EXE with version
         run: |
