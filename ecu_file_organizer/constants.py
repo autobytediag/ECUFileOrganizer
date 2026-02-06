@@ -55,6 +55,32 @@ DELPHI_DELIV_PATTERN = rb'([A-Z0-9]{4,15})_DELIV_\d'
 # Mercedes OEM part number (e.g. "A6511501879")
 MERCEDES_PART_PATTERN = rb'(?<![A-Z0-9])(A\d{10})(?!\d)'
 
+# Bosch 10SW software part number (e.g. "10SW017935")
+BOSCH_10SW_PATTERN = rb'10SW(\d{6})'
+
+# Continental/Siemens calibration ID (e.g. "CAFR1B00", "CARF8610", "CARFE9M0")
+# 3rd char must be R or F to avoid matching CAS/CAD/etc. prefixes
+CONTINENTAL_CAL_PATTERN = rb'(CA[RF][A-Z0-9]{5})'
+
+# Continental calibration block: cal_id + ref_id + OEM cal number (packed together)
+# e.g. "CARF8610RF86100010334254AA" -> cal=CARF8610, oem=10334254AA
+CONTINENTAL_BLOCK_PATTERN = rb'CA[RF][A-Z0-9]{5}[A-Z0-9]{6,8}(\d{8}[A-Z]{2})'
+
+# GM/Delco calibration number (e.g. "10214106AD") - 8 digits + 2 letters
+GM_CALIBRATION_PATTERN = rb'(?<![0-9])(\d{8}[A-Z]{2})(?![A-Z0-9])'
+
+# Continental/Delco S-number hardware part (e.g. "S180161502A9")
+DELCO_HW_PATTERN = rb'(S\d{9}[A-Z]\d)'
+
+# VAG engine code near controller address (e.g. "CAYCJ623" -> engine code CAYC)
+VAG_ENGINE_CODE_PATTERN = rb'([A-Z]{4})J623'
+
+# PSA part number (10 digits in FOS calibration context)
+PSA_PART_PATTERN = rb'(?:FOS|PSAAPP|PSA_)[^\x00]{0,80}(\d{10})'
+
+# Mercedes A-number pair (e.g. "A6511501879  A0054469640")
+MERCEDES_PAIR_PATTERN = rb'(A\d{10})\s+(A\d{10})'
+
 # Flex tool filename brand mapping
 FLEX_BRANDS = {
     'fomoco': 'Ford', 'psa': 'PSA', 'vag': 'Volkswagen',
