@@ -1,6 +1,7 @@
 """Read metadata from ECU .bin files.
 
-Supports Bosch, Continental/Siemens, Ford, Delphi, Delco/ACDelco, Mercedes.
+Supports Bosch, Continental/Siemens, Ford, Delphi, Delco/ACDelco,
+Transtron, BMW, Mercedes.
 
 To add a new ECU brand:
   1. Add BRAND_PATTERNS dict to constants.py
@@ -12,7 +13,8 @@ import re
 
 from ecu_file_organizer.constants import (
     BOSCH_PATTERNS, CONTINENTAL_PATTERNS, FORD_PATTERNS,
-    DELPHI_PATTERNS, DELCO_PATTERNS, MERCEDES_PATTERNS, GENERIC_PATTERNS
+    DELPHI_PATTERNS, DELCO_PATTERNS, TRANSTRON_PATTERNS,
+    BMW_PATTERNS, MERCEDES_PATTERNS, GENERIC_PATTERNS
 )
 
 
@@ -49,12 +51,15 @@ def read_bin_metadata(file_path: str) -> dict:
 
     # Run each brand's extractor (order matters:
     #   - Ford before Continental: Ford part numbers take priority for sw_version
-    #   - Delphi after Bosch: clears false Bosch matches in CRD files)
+    #   - Delphi after Bosch: clears false Bosch matches in CRD files
+    #   - Transtron/BMW after Bosch: only fill gaps left by Bosch)
     _extract_bosch(data, result)
     _extract_ford(data, result)
     _extract_continental(data, result)
     _extract_delphi(data, result)
     _extract_delco(data, result)
+    _extract_transtron(data, result)
+    _extract_bmw(data, result)
     _extract_mercedes(data, result)
     _extract_generic(data, result)
 
@@ -270,6 +275,15 @@ def _extract_delphi(data: bytes, result: dict) -> None:
             except UnicodeDecodeError:
                 pass
 
+    # --- Engine code from DELIV extended (e.g. "T6C1HB05_DELIV_3_G9CD_ML6_...") ---
+    if not result['engine_code']:
+        m = re.search(p['deliv_ext'], data)
+        if m:
+            try:
+                result['engine_code'] = m.group(1).decode('ascii')
+            except UnicodeDecodeError:
+                pass
+
 
 
 def _extract_delco(data: bytes, result: dict) -> None:
@@ -295,6 +309,40 @@ def _extract_delco(data: bytes, result: dict) -> None:
                     break
             except UnicodeDecodeError:
                 continue
+
+
+def _extract_transtron(data: bytes, result: dict) -> None:
+    """Extract metadata from Transtron ECUs (Isuzu, Suzuki, etc.)."""
+    p = TRANSTRON_PATTERNS
+
+    # Only proceed if this is a Transtron ECU
+    if not re.search(p['copyright'], data):
+        return
+
+    # --- Engine code + part number (e.g. "4JK1                z98250658") ---
+    m = re.search(p['engine_part'], data)
+    if m:
+        try:
+            if not result['engine_code']:
+                result['engine_code'] = m.group(1).decode('ascii')
+            if not result['oem_sw_number']:
+                result['oem_sw_number'] = m.group(2).decode('ascii')
+        except UnicodeDecodeError:
+            pass
+
+
+def _extract_bmw(data: bytes, result: dict) -> None:
+    """Extract metadata from BMW ECU binaries (DME/DDE identification)."""
+    p = BMW_PATTERNS
+
+    # --- BMW engine code from DME/DDE string (e.g. "#B47D20O0-F10") ---
+    if not result['engine_code']:
+        m = re.search(p['engine'], data)
+        if m:
+            try:
+                result['engine_code'] = m.group(1).decode('ascii')
+            except UnicodeDecodeError:
+                pass
 
 
 def _extract_mercedes(data: bytes, result: dict) -> None:
@@ -388,6 +436,26 @@ def _extract_generic(data: bytes, result: dict) -> None:
     # --- PSA part number from calibration context ---
     if not result['oem_sw_number']:
         m = re.search(p['psa_part'], data)
+        if m:
+            try:
+                result['oem_sw_number'] = m.group(1).decode('ascii')
+            except UnicodeDecodeError:
+                pass
+
+    # --- OEM part number from Bosch path extension (PSA/Iveco) ---
+    if not result['oem_sw_number']:
+        m = re.search(p['bosch_path_oem'], data)
+        if m:
+            try:
+                val = m.group(1).decode('ascii')
+                if len(set(val)) >= 4:  # filter dummy values
+                    result['oem_sw_number'] = val
+            except UnicodeDecodeError:
+                pass
+
+    # --- OEM SW number after .HEX calibration filename (Iveco/FPT) ---
+    if not result['oem_sw_number']:
+        m = re.search(p['hex_oem'], data)
         if m:
             try:
                 result['oem_sw_number'] = m.group(1).decode('ascii')

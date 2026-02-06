@@ -53,8 +53,9 @@ CONTINENTAL_PATTERNS = {
 }
 
 FORD_PATTERNS = {
-    # Part number (e.g. "RK3A-12A650-AB", "BV61-14C204-FK")
-    'part_number': rb'(?<![A-Z0-9])([A-Z0-9]{4}-[A-Z0-9]{5,6}-[A-Z]{2})(?![A-Z0-9])',
+    # Part number (e.g. "RK3A-12A650-AB", "BJ32-12K532-VLC")
+    # 2-letter suffix for Ford, 3-letter for JLR (Jaguar/Land Rover)
+    'part_number': rb'(?<![A-Z0-9])([A-Z0-9]{4}-[A-Z0-9]{5,6}-[A-Z]{2,3})(?![A-Z0-9])',
     # Calibration ID with Ford prefix (e.g. "Ford Motor Co. 2025PXRK3A-12A650-AA")
     'calibration': rb'(?:Ford Motor Co\.\s*\d{4})([A-Z]{2}[A-Z0-9]{4}-[A-Z0-9]{5,6}-[A-Z]{2})',
 }
@@ -68,6 +69,8 @@ DELPHI_PATTERNS = {
     'deliv':       rb'([A-Z0-9]{4,15})_DELIV_\d',
     # Delphi internal HW part number (e.g. "28208056", "28292738")
     'hw_part':     rb'(?<!\d)(28[2-4]\d{5})(?!\d)',
+    # Engine code from extended DELIV string (e.g. "T6C1HB05_DELIV_3_G9CD_ML6_...")
+    'deliv_ext':   rb'[A-Z0-9]+_DELIV_\d_([A-Z][A-Z0-9]{2,5})_',
 }
 
 DELCO_PATTERNS = {
@@ -75,6 +78,18 @@ DELCO_PATTERNS = {
     'hw_part':     rb'(S\d{9}[A-Z]\d)',
     # GM calibration number (e.g. "10214106AD") - 8 digits + 2 letters
     'gm_cal':      rb'(?<![0-9])(\d{8}[A-Z]{2})(?![A-Z0-9])',
+}
+
+TRANSTRON_PATTERNS = {
+    # Copyright string to confirm Transtron ECU
+    'copyright':    rb'Copyright Transtron',
+    # Engine code + part number (e.g. "4JK1                z98250658")
+    'engine_part':  rb'([A-Z0-9]{3,6})\s{4,}z?(\d{7,8})',
+}
+
+BMW_PATTERNS = {
+    # BMW engine code from DME/DDE string (e.g. "#B47D20O0-F10" → "B47D20")
+    'engine':       rb'#([BNSM]\d{2}[A-Z]\d{2})[A-Z0-9]{0,2}-[EFGIU]\d{2}',
 }
 
 MERCEDES_PATTERNS = {
@@ -95,6 +110,11 @@ GENERIC_PATTERNS = {
     'vag_engine':  rb'([A-Z]{4})J623',
     # PSA part number in FOS calibration context
     'psa_part':    rb'(?:FOS|PSAAPP|PSA_)[^\x00]{0,80}(\d{10})',
+    # OEM part number embedded in Bosch path extension (PSA/Iveco)
+    # e.g. "6D2N_2IF9B_4A8O4_9692917180//" or "62U3H_PHO8B_4A4F5_9693680480//"
+    'bosch_path_oem': rb'[A-Z0-9]{4,5}_[A-Z0-9]{4,5}_[A-Z0-9]{4,5}_(\d{10})//',
+    # OEM SW number after .HEX calibration filename (e.g. Iveco "...P07.HEX  5802338412")
+    'hex_oem':     rb'\.HEX\s+(\d{10})\s',
 }
 
 # ============================================================================
