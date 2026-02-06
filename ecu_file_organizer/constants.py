@@ -1,6 +1,6 @@
 """Shared constants for ECU File Organizer."""
 
-APP_VERSION = "1.10"
+APP_VERSION = "1.11"
 APP_NAME = "ECU File Organizer"
 APP_DISPLAY_NAME = f"ECU File Organizer v{APP_VERSION}"
 SUPPORT_URL = "https://buymeacoffee.com/autobyte"
