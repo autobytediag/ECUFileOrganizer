@@ -1,0 +1,148 @@
+name: Build & Release EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bump version
+        id: bump
+        shell: python
+        run: |
+          import re, os
+          with open("ecu_file_organizer/constants.py") as f:
+              content = f.read()
+          match = re.search(r'APP_VERSION\s*=\s*"([\d.]+)"', content)
+          old = match.group(1)
+          parts = old.split(".")
+          parts[-1] = str(int(parts[-1]) + 1)
+          new = ".".join(parts)
+          content = content.replace(f'APP_VERSION = "{old}"', f'APP_VERSION = "{new}"')
+          with open("ecu_file_organizer/constants.py", "w") as f:
+              f.write(content)
+          print(f"Version bumped: {old} -> {new}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"new={new}\n")
+              f.write(f"tag=v{new}\n")
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ecu_file_organizer/constants.py
+          git commit -m "Bump version to ${{ steps.bump.outputs.new }}"
+          git tag ${{ steps.bump.outputs.tag }}
+          git push origin main --tags
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Build EXE with Nuitka
+        uses: Nuitka/Nuitka-Action@main
+        with:
+          nuitka-version: main
+          script-name: ecu_file_organizer.py
+          mode: app
+          disable-console: true
+          windows-icon-from-ico: app_icon.ico
+          enable-plugins: pyqt6
+          assume-yes-for-downloads: true
+          nofollow-import-to: |
+            PyQt6.QtWebEngine
+            PyQt6.QtWebEngineCore
+            PyQt6.QtWebEngineWidgets
+            PyQt6.QtWebChannel
+            PyQt6.QtWebSockets
+            PyQt6.Qt3DCore
+            PyQt6.Qt3DRender
+            PyQt6.Qt3DInput
+            PyQt6.QtMultimedia
+            PyQt6.QtMultimediaWidgets
+            PyQt6.QtBluetooth
+            PyQt6.QtNfc
+            PyQt6.QtSensors
+            PyQt6.QtQuick
+            PyQt6.QtQuickWidgets
+            PyQt6.QtQml
+            PyQt6.QtDesigner
+            PyQt6.QtHelp
+            PyQt6.QtTest
+            PyQt6.QtNetwork
+            PyQt6.QtNetworkAuth
+            PyQt6.QtOpenGL
+            PyQt6.QtOpenGLWidgets
+            PyQt6.QtPdf
+            PyQt6.QtSvg
+            PyQt6.QtSvgWidgets
+            PyQt6.QtXml
+            PyQt6.QtSql
+            PyQt6.QtDBus
+            PyQt6.QtRemoteObjects
+            PyQt6.QtSerialPort
+            PyQt6.QtPositioning
+            PyQt6.QtLocation
+            PyQt6.QtTextToSpeech
+            PyQt6.QtSpatialAudio
+            tkinter
+            unittest
+            pydoc
+            lib2to3
+            xmlrpc
+            multiprocessing
+          output-file: ECU_File_Organizer
+
+      - name: Rename EXE with version
+        run: |
+          mkdir -p dist
+          move build\ECU_File_Organizer.exe "dist\ECU_File_Organizer_v${{ steps.bump.outputs.new }}.exe"
+        shell: cmd
+
+      - name: Show EXE size
+        run: |
+          dir dist\*.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ECU_File_Organizer_v${{ steps.bump.outputs.new }}
+          path: dist/*.exe
+          include-hidden-files: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: ECU File Organizer ${{ steps.bump.outputs.tag }}
+          body: |
+            ## ECU File Organizer v${{ steps.bump.outputs.new }}
+
+            ### Download
+            `ECU_File_Organizer_v${{ steps.bump.outputs.new }}.exe` herunterladen und starten - keine Installation nötig.
+
+            ### Features
+            - Automatische BIN-Datei Erkennung (Bosch, Continental)
+            - SW-Version, OEM-Nummern, ECU-Typ aus BIN auslesen
+            - Professionelle Ordnerstruktur
+            - Log.txt mit allen Metadaten
+          files: dist/*.exe
+          generate_release_notes: true
