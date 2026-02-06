@@ -250,15 +250,7 @@ namespace ECUFileOrganizer
                 text += $"  ... and {existingFolders.Count - 5} more\n";
             text += "\nAdd to existing: Keep all files together\nCreate new: Separate by date/service";
 
-            var result = MessageBox.Show(this, text, "Duplicate Detected",
-                MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question,
-                MessageBoxDefaultButton.Button1,
-                0, // no help
-                false);
-
-            // YesNoCancel: Yes=Add to existing, No=Create new, Cancel=Cancel
-            // But WinForms doesn't support custom button text easily.
-            // Use a custom Form instead:
+            // Custom dialog with proper button labels:
             using (var dlg = new Form
             {
                 Text = "Duplicate Detected",
