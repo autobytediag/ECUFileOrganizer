@@ -12,6 +12,7 @@
     <RootNamespace>ECUFileOrganizer</RootNamespace>
     <AssemblyName>ECU_File_Organizer</AssemblyName>
     <LangVersion>latest</LangVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
