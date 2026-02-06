@@ -1,4 +1,4 @@
-name: Build & Release EXE
+name: Build & Release EXE (Python)
 
 on:
   push:

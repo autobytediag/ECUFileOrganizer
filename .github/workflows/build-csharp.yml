@@ -1,0 +1,32 @@
+name: Build C# EXE (Refactor)
+
+on:
+  push:
+    branches: [refactor]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore ECUFileOrganizer.sln
+
+      - name: Build Release
+        run: msbuild src/ECUFileOrganizer.csproj /p:Configuration=Release /p:OutputPath=..\build
+
+      - name: Show EXE size
+        run: dir build\*.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ECU_File_Organizer_CSharp
+          path: build/ECU_File_Organizer.exe
