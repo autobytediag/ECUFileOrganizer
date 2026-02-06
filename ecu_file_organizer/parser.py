@@ -1,21 +1,123 @@
-"""Filename parser for Autotuner ECU file naming convention."""
+"""Filename parser for Autotuner and Flex ECU file naming conventions."""
 
 import os
+import re
 from datetime import datetime
 
-from ecu_file_organizer.constants import ECU_BRANDS
+from ecu_file_organizer.constants import (
+    ECU_BRANDS, FLEX_BRANDS, FLEX_ECU_BRANDS, FLEX_READ_METHODS
+)
 from ecu_file_organizer.bin_reader import read_bin_metadata
 
 
 class FileParser:
-    """Parse Autotuner filename format"""
+    """Parse Autotuner and Flex filename formats"""
+
+    @staticmethod
+    def is_flex_filename(filename):
+        """Detect if filename uses Flex (dash-separated) naming convention."""
+        name = filename.replace('.bin', '').replace('.BIN', '')
+        # Flex files use dashes, not underscores as primary separator
+        if '_' in name and '-' not in name:
+            return False
+        parts = name.split('-')
+        if len(parts) < 4:
+            return False
+        # Check for known Flex brand prefix
+        if parts[0].lower() in FLEX_BRANDS:
+            return True
+        # Check for known ECU brand as second part
+        if len(parts) > 1 and parts[1].lower() in FLEX_ECU_BRANDS:
+            return True
+        return False
+
+    @staticmethod
+    def parse_flex_filename(filename):
+        """
+        Parse Flex filename format like:
+          fomoco-delphi-dcm3.5-obd-maps-wf0lxxgcbldu74735-20260204104420.bin
+          psa-bosch-md1cs003-tc298tp-bench-fullbackup-...-20260205122803-int-flash.bin
+        Returns dict with parsed fields.
+        """
+        name = filename.replace('.bin', '').replace('.BIN', '')
+        parts = name.split('-')
+
+        parsed = {
+            'make': '',
+            'model': '',
+            'engine': '',
+            'ecu': '',
+            'date': datetime.now().strftime('%Y%m%d'),
+            'mileage': '',
+            'registration': '',
+            'read_method': ''
+        }
+
+        # Find timestamp (14 digits: YYYYMMDDHHmmSS)
+        timestamp_idx = None
+        for i, part in enumerate(parts):
+            if len(part) == 14 and part.isdigit() and part[:2] == '20':
+                timestamp_idx = i
+                break
+
+        if timestamp_idx is not None:
+            parsed['date'] = parts[timestamp_idx][:8]
+
+        # Parts before timestamp are the metadata
+        meta_parts = parts[:timestamp_idx] if timestamp_idx else parts
+
+        if not meta_parts:
+            return parsed
+
+        # First part: brand → make
+        brand = meta_parts[0].lower()
+        parsed['make'] = FLEX_BRANDS.get(brand, brand.capitalize())
+
+        remaining = meta_parts[1:]
+
+        # Second part: ECU brand (if recognized)
+        ecu_brand = ''
+        if remaining and remaining[0].lower() in FLEX_ECU_BRANDS:
+            ecu_brand = remaining[0].capitalize()
+            remaining = remaining[1:]
+
+        # Next part: ECU type
+        ecu_type = ''
+        if remaining:
+            ecu_type = remaining[0].upper()
+            remaining = remaining[1:]
+
+        # Find read method in remaining parts
+        read_method_raw = ''
+        for i, part in enumerate(remaining):
+            if part.lower() in FLEX_READ_METHODS:
+                read_method_raw = part.lower()
+                break
+
+        # Build ECU string
+        ecu_str = f"{ecu_brand} {ecu_type}".strip()
+        parsed['ecu'] = ecu_str
+
+        # Map read method
+        if read_method_raw == 'obd':
+            parsed['read_method'] = 'Normal Read-OBD'
+        elif read_method_raw == 'bench':
+            parsed['read_method'] = 'Bench'
+        elif read_method_raw == 'boot':
+            parsed['read_method'] = 'Boot'
+
+        return parsed
 
     @staticmethod
     def parse_filename(filename):
         """
-        Parse filename like: Volkswagen_Golf_2008__VI__1_6_TDI_CR_105_hp_Siemens_PCR2_1_OBD_NR.bin
-        Returns dict with parsed fields
+        Parse filename - auto-detects Autotuner (underscore) or Flex (dash) format.
+        Returns dict with parsed fields.
         """
+        # Check for Flex format first
+        if FileParser.is_flex_filename(filename):
+            return FileParser.parse_flex_filename(filename)
+
         # Remove .bin extension
         name = filename.replace('.bin', '').replace('.BIN', '')
 

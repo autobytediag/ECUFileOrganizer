@@ -8,6 +8,7 @@ SUPPORT_URL = "https://buymeacoffee.com/autobyte"
 ECU_BRANDS = [
     'Bosch', 'Siemens', 'Delphi', 'Continental',
     'Marelli', 'Valeo', 'Denso', 'PCR', 'EDC', 'MED',
+    'Delco', 'Transtron',
 ]
 
 READ_METHODS = [
@@ -44,3 +45,39 @@ FORD_CALIBRATION_PATTERN = rb'(?:Ford Motor Co\.\s*\d{4})([A-Z]{2}[A-Z0-9]{4}-[A
 
 # Continental ECU type identifiers (e.g. SID213, SID807, EMS3125)
 CONTINENTAL_ECU_PATTERN = rb'(?:SID|EMS|SIM)\d{3,4}'
+
+# Delphi CRD metadata string (e.g. "CRD2-651-TMABDD11-639A4X-100kW-...")
+DELPHI_CRD_PATTERN = rb'(CRD\d?)-(\d{3})-([A-Z0-9]+)'
+
+# Delphi calibration delivery identifier (e.g. "SM05B006_DELIV_1 Apr 11 10:42:37 2008")
+DELPHI_DELIV_PATTERN = rb'([A-Z0-9]{4,15})_DELIV_\d'
+
+# Mercedes OEM part number (e.g. "A6511501879")
+MERCEDES_PART_PATTERN = rb'(?<![A-Z0-9])(A\d{10})(?!\d)'
+
+# Flex tool filename brand mapping
+FLEX_BRANDS = {
+    'fomoco': 'Ford', 'psa': 'PSA', 'vag': 'Volkswagen',
+    'bmw': 'BMW', 'fca': 'FCA', 'renault': 'Renault',
+    'nissan': 'Nissan', 'opel': 'Opel', 'toyota': 'Toyota',
+    'hyundai': 'Hyundai', 'kia': 'Kia', 'mercedes': 'Mercedes',
+    'gm': 'GM', 'jlr': 'JLR', 'suzuki': 'Suzuki',
+    'subaru': 'Subaru', 'mazda': 'Mazda', 'mitsubishi': 'Mitsubishi',
+    'volvo': 'Volvo', 'iveco': 'Iveco', 'man': 'MAN',
+    'daf': 'DAF', 'scania': 'Scania', 'isuzu': 'Isuzu',
+    'honda': 'Honda', 'jaguar': 'Jaguar', 'landrover': 'Land Rover',
+    'porsche': 'Porsche', 'audi': 'Audi', 'seat': 'Seat',
+    'skoda': 'Skoda', 'chrysler': 'Chrysler', 'jeep': 'Jeep',
+    'dodge': 'Dodge', 'alfa': 'Alfa Romeo', 'fiat': 'Fiat',
+    'lancia': 'Lancia', 'citroen': 'Citroen', 'peugeot': 'Peugeot',
+    'ds': 'DS', 'mini': 'Mini', 'smart': 'Smart',
+}
+
+# Known ECU manufacturer names in Flex filenames
+FLEX_ECU_BRANDS = {
+    'bosch', 'siemens', 'delphi', 'continental', 'marelli',
+    'denso', 'delco', 'valeo', 'hitachi', 'kefico', 'transtron',
+}
+
+# Known read methods in Flex filenames
+FLEX_READ_METHODS = {'obd', 'bench', 'boot'}

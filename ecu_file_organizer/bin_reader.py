@@ -1,4 +1,4 @@
-"""Read metadata from ECU .bin files (Bosch, Continental/Ford)."""
+"""Read metadata from ECU .bin files (Bosch, Continental/Ford, Delphi)."""
 
 import re
 
@@ -6,7 +6,8 @@ from ecu_file_organizer.constants import (
     BOSCH_SW_PATTERN, OEM_NUMBER_PATTERN, ECU_TYPE_PATTERN, ENGINE_PATTERN,
     BOSCH_PATH_PATTERN, BOSCH_SW_VARIANT_PATTERN,
     FORD_PART_NUMBER_PATTERN, FORD_CALIBRATION_PATTERN,
-    CONTINENTAL_ECU_PATTERN
+    CONTINENTAL_ECU_PATTERN,
+    DELPHI_CRD_PATTERN, DELPHI_DELIV_PATTERN, MERCEDES_PART_PATTERN
 )
 
 
@@ -79,7 +80,10 @@ def read_bin_metadata(file_path: str) -> dict:
 
             if not result['ecu_type']:
                 result['ecu_type'] = path_ecu
-            if not result['sw_version'] and path_variant:
+            # Only use pure numeric calibration versions (e.g. 1396, 1110)
+            # from the Bosch path - skip P-codes (P1070, P_1320) entirely
+            if (not result['sw_version'] and path_variant
+                    and path_variant.isdigit() and len(path_variant) >= 3):
                 result['sw_version'] = path_variant
             if not result['bosch_sw_number'] and path_id:
                 result['bosch_sw_number'] = path_id
@@ -133,6 +137,67 @@ def read_bin_metadata(file_path: str) -> dict:
                 result['ecu_type'] = m.group(0).decode('ascii')
             except UnicodeDecodeError:
                 pass
+
+    # ===== Delphi CRD/CRD2 detection =====
+
+    is_delphi_crd = False
+
+    # --- Delphi CRD metadata (e.g. "CRD2-651-TMABDD11-639A4X-100kW-...") ---
+    crd_matches = list(re.finditer(DELPHI_CRD_PATTERN, data))
+    if crd_matches:
+        is_delphi_crd = True
+        # Use the last (most complete) CRD match
+        m = crd_matches[-1]
+        try:
+            crd_ecu = m.group(1).decode('ascii')       # CRD or CRD2
+            crd_sw = m.group(3).decode('ascii')         # calibration ID
+
+            if not result['ecu_type']:
+                result['ecu_type'] = crd_ecu
+            if not result['sw_version']:
+                result['sw_version'] = crd_sw
+
+            # Clear false Bosch matches in Delphi files
+            result['bosch_sw_number'] = ''
+            result['bosch_variant'] = ''
+        except UnicodeDecodeError:
+            pass
+
+    # --- Delphi calibration delivery ID (e.g. "SM05B006_DELIV_1 ...") ---
+    if not result['sw_version']:
+        deliv_matches = list(re.finditer(DELPHI_DELIV_PATTERN, data))
+        if deliv_matches:
+            is_delphi_crd = is_delphi_crd or True
+            # Use the last DELIV match (usually the application SW, not bootloader)
+            m = deliv_matches[-1]
+            try:
+                result['sw_version'] = m.group(1).decode('ascii')
+            except UnicodeDecodeError:
+                pass
+
+    # ===== Mercedes part numbers (only for Delphi CRD files) =====
+
+    if is_delphi_crd:
+        # --- Mercedes A-numbers (e.g. "A6511501879") ---
+        mb_parts = re.findall(MERCEDES_PART_PATTERN, data)
+        if mb_parts:
+            mb_numbers = []
+            for part_bytes in mb_parts:
+                try:
+                    val = part_bytes.decode('ascii')
+                    # Filter obvious dummy values (all same digit, etc.)
+                    digits = val[1:]  # strip 'A' prefix
+                    if len(set(digits)) < 4:
+                        continue
+                    if val not in mb_numbers:
+                        mb_numbers.append(val)
+                except UnicodeDecodeError:
+                    continue
+
+            if mb_numbers and not result['oem_hw_number']:
+                result['oem_hw_number'] = mb_numbers[0]
+            if len(mb_numbers) > 1 and not result['oem_sw_number']:
+                result['oem_sw_number'] = mb_numbers[1]
 
     # ===== Generic patterns (all ECU brands) =====
 
