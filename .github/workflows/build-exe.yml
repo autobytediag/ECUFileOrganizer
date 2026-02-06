@@ -24,34 +24,43 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Bump version
+      - name: Compute next version from tags
         id: bump
+        shell: bash
+        run: |
+          # Get latest version tag (e.g. v1.22)
+          LATEST_TAG=$(git tag --sort=-v:refname | head -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            NEW="1.0"
+          else
+            # Strip 'v' prefix and increment last number
+            OLD="${LATEST_TAG#v}"
+            MAJOR=$(echo "$OLD" | cut -d. -f1)
+            MINOR=$(echo "$OLD" | cut -d. -f2)
+            NEW="${MAJOR}.$((MINOR + 1))"
+          fi
+          echo "Version: $NEW (previous tag: $LATEST_TAG)"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Inject version into build
         shell: python
         run: |
-          import re, os
+          import re
+          version = "${{ steps.bump.outputs.new }}"
           with open("ecu_file_organizer/constants.py") as f:
               content = f.read()
-          match = re.search(r'APP_VERSION\s*=\s*"([\d.]+)"', content)
-          old = match.group(1)
-          parts = old.split(".")
-          parts[-1] = str(int(parts[-1]) + 1)
-          new = ".".join(parts)
-          content = content.replace(f'APP_VERSION = "{old}"', f'APP_VERSION = "{new}"')
+          content = re.sub(r'APP_VERSION\s*=\s*"[^"]*"', f'APP_VERSION = "{version}"', content)
           with open("ecu_file_organizer/constants.py", "w") as f:
               f.write(content)
-          print(f"Version bumped: {old} -> {new}")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"new={new}\n")
-              f.write(f"tag=v{new}\n")
+          print(f"Injected version {version} into constants.py (build only, not committed)")
 
-      - name: Commit version bump
+      - name: Create and push tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ecu_file_organizer/constants.py
-          git commit -m "Bump version to ${{ steps.bump.outputs.new }}"
           git tag ${{ steps.bump.outputs.tag }}
-          git push origin main --tags
+          git push origin ${{ steps.bump.outputs.tag }}
 
       - name: Install dependencies
         run: |
