@@ -107,6 +107,12 @@ class ECUFormDialog(QWidget):
         self.engine_code_input.setPlaceholderText("e.g., CFFB (auto-detected from BIN)")
         form_layout.addRow("Engine Code:", self.engine_code_input)
 
+        # Engine Type (from BIN metadata)
+        self.engine_type_input = QLineEdit()
+        self.engine_type_input.setText(parsed_data.get('engine_type', ''))
+        self.engine_type_input.setPlaceholderText("e.g., R4 2.0l TDI (auto-detected from BIN)")
+        form_layout.addRow("Engine Type:", self.engine_type_input)
+
         # Read Method dropdown
         self.read_method_combo = QComboBox()
         self.read_method_combo.addItems(READ_METHODS)
@@ -352,6 +358,7 @@ class ECUFormDialog(QWidget):
         oem_hw = self.oem_hw_input.text().strip()
         oem_sw = self.oem_sw_input.text().strip()
         engine_code = self.engine_code_input.text().strip()
+        engine_type = self.engine_type_input.text().strip()
 
         # Validation
         if not make or not model:
@@ -417,7 +424,8 @@ class ECUFormDialog(QWidget):
             # Create Log.txt file
             self.create_log_file(dest_folder, make, model, date, ecu, read_method,
                                mileage, registration, filename, dest_path,
-                               sw_version, bosch_sw, oem_hw, oem_sw, engine_code)
+                               sw_version, bosch_sw, oem_hw, oem_sw,
+                               engine_code, engine_type)
 
             # Open folder if setting is enabled
             if self.parent_window and self.parent_window.settings.get('open_folder_on_save', False):
@@ -437,7 +445,7 @@ class ECUFormDialog(QWidget):
     def create_log_file(self, dest_folder, make, model, date, ecu, read_method,
                        mileage, registration, filename, dest_path,
                        sw_version='', bosch_sw='', oem_hw='', oem_sw='',
-                       engine_code=''):
+                       engine_code='', engine_type=''):
         """Create or append to Log.txt file with session information"""
         try:
             log_path = os.path.join(dest_folder, "Log.txt")
@@ -490,6 +498,7 @@ ECU Metadata (from BIN):
   OEM HW Number:    {oem_hw}
   OEM SW Number:    {oem_sw}
   Engine Code:      {engine_code}
+  Engine Type:      {engine_type}
 
 Full Path: {dest_path}
 

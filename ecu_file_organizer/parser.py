@@ -197,6 +197,7 @@ class FileParser:
         parsed['oem_hw_number'] = ''
         parsed['oem_sw_number'] = ''
         parsed['engine_code'] = ''
+        parsed['engine_type'] = ''
 
         # Try to read BIN metadata
         if file_path.lower().endswith('.bin') and os.path.isfile(file_path):
@@ -207,6 +208,7 @@ class FileParser:
             parsed['oem_hw_number'] = bin_meta.get('oem_hw_number', '')
             parsed['oem_sw_number'] = bin_meta.get('oem_sw_number', '')
             parsed['engine_code'] = bin_meta.get('engine_code', '')
+            parsed['engine_type'] = bin_meta.get('engine_type', '')
 
             # If BIN has a better ECU type, use it (e.g. EDC17_C46 vs "Bosch EDC17C46")
             if bin_meta.get('ecu_type'):

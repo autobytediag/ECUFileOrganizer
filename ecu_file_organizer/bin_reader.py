@@ -1,16 +1,18 @@
-"""Read metadata from ECU .bin files (Bosch, Continental/Ford, Delphi)."""
+"""Read metadata from ECU .bin files.
+
+Supports Bosch, Continental/Siemens, Ford, Delphi, Delco/ACDelco, Mercedes.
+
+To add a new ECU brand:
+  1. Add BRAND_PATTERNS dict to constants.py
+  2. Create _extract_brand(data, result) function below
+  3. Add the call to read_bin_metadata()
+"""
 
 import re
 
 from ecu_file_organizer.constants import (
-    BOSCH_SW_PATTERN, OEM_NUMBER_PATTERN, ECU_TYPE_PATTERN, ENGINE_PATTERN,
-    BOSCH_PATH_PATTERN, BOSCH_SW_VARIANT_PATTERN,
-    FORD_PART_NUMBER_PATTERN, FORD_CALIBRATION_PATTERN,
-    CONTINENTAL_ECU_PATTERN, CONTINENTAL_CAL_PATTERN, CONTINENTAL_BLOCK_PATTERN,
-    DELPHI_CRD_PATTERN, DELPHI_DELIV_PATTERN,
-    MERCEDES_PART_PATTERN, MERCEDES_PAIR_PATTERN,
-    BOSCH_10SW_PATTERN, GM_CALIBRATION_PATTERN, DELCO_HW_PATTERN,
-    VAG_ENGINE_CODE_PATTERN, PSA_PART_PATTERN
+    BOSCH_PATTERNS, CONTINENTAL_PATTERNS, FORD_PATTERNS,
+    DELPHI_PATTERNS, DELCO_PATTERNS, MERCEDES_PATTERNS, GENERIC_PATTERNS
 )
 
 
@@ -18,8 +20,8 @@ def read_bin_metadata(file_path: str) -> dict:
     """
     Read metadata from an ECU .bin file.
 
-    Supports Bosch (EDC17, MED17, MD1, MG1, ...) and Continental/Ford (SID213, ...).
     Searches for ASCII strings embedded in the binary using regex patterns.
+    Each ECU brand has its own extraction function.
 
     Returns dict with:
         sw_version, bosch_sw_number, bosch_variant, oem_hw_number,
@@ -45,10 +47,30 @@ def read_bin_metadata(file_path: str) -> dict:
     if len(data) == 0:
         return result
 
-    # ===== BOSCH ECU detection =====
+    # Run each brand's extractor (order matters:
+    #   - Ford before Continental: Ford part numbers take priority for sw_version
+    #   - Delphi after Bosch: clears false Bosch matches in CRD files)
+    _extract_bosch(data, result)
+    _extract_ford(data, result)
+    _extract_continental(data, result)
+    _extract_delphi(data, result)
+    _extract_delco(data, result)
+    _extract_mercedes(data, result)
+    _extract_generic(data, result)
 
-    # --- Bosch SW number + variant (e.g. "1037394113P529TAYI") ---
-    m = re.search(BOSCH_SW_VARIANT_PATTERN, data)
+    return result
+
+
+# ============================================================================
+# Brand-specific extractors
+# ============================================================================
+
+def _extract_bosch(data: bytes, result: dict) -> None:
+    """Extract metadata from Bosch ECU binaries (EDC17, MED17, MD1, MG1, ...)."""
+    p = BOSCH_PATTERNS
+
+    # --- SW number + variant (e.g. "1037394113P529TAYI") ---
+    m = re.search(p['sw_variant'], data)
     if m:
         try:
             result['bosch_sw_number'] = m.group(1).decode('ascii')
@@ -56,25 +78,25 @@ def read_bin_metadata(file_path: str) -> dict:
         except UnicodeDecodeError:
             pass
 
-    # Fallback: plain Bosch SW number without variant
+    # Fallback: plain SW number without variant
     if not result['bosch_sw_number']:
-        m = re.search(BOSCH_SW_PATTERN, data)
+        m = re.search(p['sw_number'], data)
         if m:
             try:
                 result['bosch_sw_number'] = m.group(1).decode('ascii')
             except UnicodeDecodeError:
                 pass
 
-    # --- Bosch ECU type ---
-    m = re.search(ECU_TYPE_PATTERN, data)
+    # --- ECU type (EDC17_C46, MD1CS003, etc.) ---
+    m = re.search(p['ecu_type'], data)
     if m:
         try:
             result['ecu_type'] = m.group(1).decode('ascii')
         except UnicodeDecodeError:
             pass
 
-    # --- Bosch firmware version path ---
-    m = re.search(BOSCH_PATH_PATTERN, data)
+    # --- Firmware version path (e.g. "38/1/EDC17_C50/11/P_1320//VHKL0///") ---
+    m = re.search(p['path'], data)
     if m:
         try:
             path_ecu = m.group(2).decode('ascii')
@@ -84,7 +106,7 @@ def read_bin_metadata(file_path: str) -> dict:
             if not result['ecu_type']:
                 result['ecu_type'] = path_ecu
             # Only use pure numeric calibration versions (e.g. 1396, 1110)
-            # from the Bosch path - skip P-codes (P1070, P_1320) entirely
+            # Skip P-codes (P1070, P_1320) - those are Bosch project IDs
             if (not result['sw_version'] and path_variant
                     and path_variant.isdigit() and len(path_variant) >= 3):
                 result['sw_version'] = path_variant
@@ -93,22 +115,73 @@ def read_bin_metadata(file_path: str) -> dict:
         except UnicodeDecodeError:
             pass
 
-    # --- Bosch 10SW software part number (e.g. "10SW017935") ---
+    # --- 10SW software part number (e.g. "10SW017935") ---
     if not result['bosch_sw_number']:
-        m = re.search(BOSCH_10SW_PATTERN, data)
+        m = re.search(p['10sw'], data)
         if m:
             try:
                 result['bosch_sw_number'] = '10SW' + m.group(1).decode('ascii')
             except UnicodeDecodeError:
                 pass
 
-    # ===== Continental/Ford detection =====
+    # --- Bosch ECU hardware number (e.g. "0261206042", "0281014568") ---
+    # Only search if we confirmed this is a Bosch ECU (to avoid false positives)
+    has_bosch = bool(
+        result['bosch_sw_number'] or result['bosch_variant']
+        or (result['ecu_type'] and re.match(
+            r'(?:EDC|MED|MEVD|MG1|MD1|MDG1)', result['ecu_type']))
+    )
+    if not result['oem_hw_number'] and has_bosch:
+        m = re.search(p['hw_number'], data)
+        if m:
+            try:
+                result['oem_hw_number'] = m.group(1).decode('ascii')
+            except UnicodeDecodeError:
+                pass
+
+
+def _extract_continental(data: bytes, result: dict) -> None:
+    """Extract metadata from Continental/Siemens ECUs (SID, EMS, PCR, ...)."""
+    p = CONTINENTAL_PATTERNS
+
+    # --- ECU type (SID307, EMS3125, etc.) ---
+    if not result['ecu_type']:
+        m = re.search(p['ecu_type'], data)
+        if m:
+            try:
+                result['ecu_type'] = m.group(0).decode('ascii')
+            except UnicodeDecodeError:
+                pass
+
+    # --- Calibration ID (e.g. "CAFR1B00", "CARF8610") ---
+    if not result['sw_version']:
+        m = re.search(p['cal_id'], data)
+        if m:
+            try:
+                result['sw_version'] = m.group(1).decode('ascii')
+            except UnicodeDecodeError:
+                pass
+
+    # --- OEM cal number from packed block (e.g. "CARF8610RF86100010334254AA") ---
+    if not result['oem_sw_number']:
+        m = re.search(p['cal_block'], data)
+        if m:
+            try:
+                val = m.group(1).decode('ascii')
+                if len(set(val[:8])) >= 4:  # filter dummy values
+                    result['oem_sw_number'] = val
+            except UnicodeDecodeError:
+                pass
+
+
+def _extract_ford(data: bytes, result: dict) -> None:
+    """Extract metadata from Ford ECU binaries."""
+    p = FORD_PATTERNS
 
     # --- Ford part numbers (e.g. "RK3A-12A650-AB") ---
-    ford_parts = re.findall(FORD_PART_NUMBER_PATTERN, data)
+    ford_parts = re.findall(p['part_number'], data)
     if ford_parts:
-        # Distinguish SW vs HW by middle segment:
-        # xxAxxx = calibration/SW, xxCxxx = hardware module
+        # Distinguish SW vs HW by middle segment: xxCxxx = hardware module
         ford_sw = []
         ford_hw = []
         for part_bytes in ford_parts:
@@ -126,13 +199,11 @@ def read_bin_metadata(file_path: str) -> dict:
             result['oem_sw_number'] = ford_sw[0]
         if ford_hw and not result['oem_hw_number']:
             result['oem_hw_number'] = ford_hw[0]
-
-        # Use first Ford SW part as sw_version if nothing found yet
         if ford_sw and not result['sw_version']:
             result['sw_version'] = ford_sw[0]
 
     # --- Ford calibration ID (e.g. "Ford Motor Co. 2025PXRK3A-12A650-AA") ---
-    m = re.search(FORD_CALIBRATION_PATTERN, data)
+    m = re.search(p['calibration'], data)
     if m:
         try:
             cal_id = m.group(1).decode('ascii')
@@ -141,40 +212,73 @@ def read_bin_metadata(file_path: str) -> dict:
         except UnicodeDecodeError:
             pass
 
-    # --- Continental ECU type (SID213, EMS3125, etc.) ---
-    if not result['ecu_type']:
-        m = re.search(CONTINENTAL_ECU_PATTERN, data)
-        if m:
-            try:
-                result['ecu_type'] = m.group(0).decode('ascii')
-            except UnicodeDecodeError:
-                pass
 
-    # --- Continental/Siemens calibration ID (e.g. "CAFR1B00") ---
+def _extract_delphi(data: bytes, result: dict) -> None:
+    """Extract metadata from Delphi ECUs (CRD, CRD2, DCM, ...).
+
+    Also sets result['_is_delphi_crd'] flag for Mercedes detection.
+    Clears false Bosch matches when CRD is detected.
+    """
+    p = DELPHI_PATTERNS
+
+    # --- CRD metadata (e.g. "CRD2-651-TMABDD11-639A4X-100kW-...") ---
+    crd_matches = list(re.finditer(p['crd'], data))
+    if crd_matches:
+        result['_is_delphi_crd'] = True
+        m = crd_matches[-1]  # last match is usually the most complete
+        try:
+            crd_ecu = m.group(1).decode('ascii')
+            crd_engine = m.group(2).decode('ascii')
+            crd_sw = m.group(3).decode('ascii')
+
+            if not result['ecu_type']:
+                result['ecu_type'] = crd_ecu
+            if not result['sw_version']:
+                result['sw_version'] = crd_sw
+
+            # Extract Mercedes engine family (651=OM651, 646=OM646, 642=OM642)
+            if not result['engine_code'] and crd_engine.isdigit():
+                result['engine_code'] = 'OM' + crd_engine
+
+            # Clear false Bosch matches in Delphi files
+            result['bosch_sw_number'] = ''
+            result['bosch_variant'] = ''
+            # Clear potentially false Bosch/generic HW number
+            # (Mercedes A-numbers will be extracted later by _extract_mercedes)
+            result['oem_hw_number'] = ''
+        except UnicodeDecodeError:
+            pass
+
+        # --- CRD power rating (e.g. "100kW", "125kW") ---
+        if not result['engine_type']:
+            m_power = re.search(p['crd_power'], data)
+            if m_power:
+                try:
+                    power = m_power.group(1).decode('ascii')
+                    result['engine_type'] = power + 'kW'
+                except UnicodeDecodeError:
+                    pass
+
+    # --- DELIV calibration ID (e.g. "SM05B006_DELIV_1 Apr 11 ...") ---
     if not result['sw_version']:
-        m = re.search(CONTINENTAL_CAL_PATTERN, data)
-        if m:
+        deliv_matches = list(re.finditer(p['deliv'], data))
+        if deliv_matches:
+            result['_is_delphi_crd'] = True
+            m = deliv_matches[-1]  # last = application SW, not bootloader
             try:
                 result['sw_version'] = m.group(1).decode('ascii')
             except UnicodeDecodeError:
                 pass
 
-    # --- Continental calibration block OEM number (packed: "CARF8610RF86100010334254AA") ---
-    if not result['oem_sw_number']:
-        m = re.search(CONTINENTAL_BLOCK_PATTERN, data)
-        if m:
-            try:
-                val = m.group(1).decode('ascii')
-                if len(set(val[:8])) >= 4:
-                    result['oem_sw_number'] = val
-            except UnicodeDecodeError:
-                pass
 
-    # ===== Delco/ACDelco (GM) detection =====
 
-    # --- Delco S-number hardware part (e.g. "S180161502A9") ---
+def _extract_delco(data: bytes, result: dict) -> None:
+    """Extract metadata from Delco/ACDelco (GM) ECUs (E98, etc.)."""
+    p = DELCO_PATTERNS
+
+    # --- S-number hardware part (e.g. "S180161502A9") ---
     if not result['oem_hw_number']:
-        m = re.search(DELCO_HW_PATTERN, data)
+        m = re.search(p['hw_part'], data)
         if m:
             try:
                 result['oem_hw_number'] = m.group(1).decode('ascii')
@@ -183,87 +287,54 @@ def read_bin_metadata(file_path: str) -> dict:
 
     # --- GM calibration number (e.g. "10214106AD") ---
     if not result['oem_sw_number']:
-        for gm_match in re.finditer(GM_CALIBRATION_PATTERN, data):
+        for gm_match in re.finditer(p['gm_cal'], data):
             try:
                 val = gm_match.group(1).decode('ascii')
-                # Filter dummy values (all same digit like 22222222FU)
-                digits = val[:8]
-                if len(set(digits)) >= 4:
+                if len(set(val[:8])) >= 4:  # filter dummy values
                     result['oem_sw_number'] = val
                     break
             except UnicodeDecodeError:
                 continue
 
-    # ===== Delphi CRD/CRD2 detection =====
 
-    is_delphi_crd = False
+def _extract_mercedes(data: bytes, result: dict) -> None:
+    """Extract Mercedes part numbers (only active for Delphi CRD files)."""
+    if not result.get('_is_delphi_crd'):
+        return
 
-    # --- Delphi CRD metadata (e.g. "CRD2-651-TMABDD11-639A4X-100kW-...") ---
-    crd_matches = list(re.finditer(DELPHI_CRD_PATTERN, data))
-    if crd_matches:
-        is_delphi_crd = True
-        # Use the last (most complete) CRD match
-        m = crd_matches[-1]
+    p = MERCEDES_PATTERNS
+
+    # --- A-number pairs (e.g. "A6511501879  A0054469640") ---
+    m = re.search(p['pair'], data)
+    if m:
         try:
-            crd_ecu = m.group(1).decode('ascii')       # CRD or CRD2
-            crd_sw = m.group(3).decode('ascii')         # calibration ID
-
-            if not result['ecu_type']:
-                result['ecu_type'] = crd_ecu
-            if not result['sw_version']:
-                result['sw_version'] = crd_sw
-
-            # Clear false Bosch matches in Delphi files
-            result['bosch_sw_number'] = ''
-            result['bosch_variant'] = ''
+            hw = m.group(1).decode('ascii')
+            sw = m.group(2).decode('ascii')
+            if not result['oem_hw_number'] and len(set(hw[1:])) >= 4:
+                result['oem_hw_number'] = hw
+            if not result['oem_sw_number'] and len(set(sw[1:])) >= 4:
+                result['oem_sw_number'] = sw
         except UnicodeDecodeError:
             pass
 
-    # --- Delphi calibration delivery ID (e.g. "SM05B006_DELIV_1 ...") ---
-    if not result['sw_version']:
-        deliv_matches = list(re.finditer(DELPHI_DELIV_PATTERN, data))
-        if deliv_matches:
-            is_delphi_crd = is_delphi_crd or True
-            # Use the last DELIV match (usually the application SW, not bootloader)
-            m = deliv_matches[-1]
+    # Fallback: single A-numbers
+    if not result['oem_hw_number']:
+        for m in re.finditer(p['part_number'], data):
             try:
-                result['sw_version'] = m.group(1).decode('ascii')
+                val = m.group(1).decode('ascii')
+                if len(set(val[1:])) >= 4:
+                    result['oem_hw_number'] = val
+                    break
             except UnicodeDecodeError:
-                pass
+                continue
 
-    # ===== Mercedes part numbers (only for Delphi CRD files) =====
 
-    if is_delphi_crd:
-        # --- Mercedes A-number pairs (e.g. "A6511501879  A0054469640") ---
-        # Try pair pattern first (handles packed data where single pattern fails)
-        m = re.search(MERCEDES_PAIR_PATTERN, data)
-        if m:
-            try:
-                hw = m.group(1).decode('ascii')
-                sw = m.group(2).decode('ascii')
-                if not result['oem_hw_number'] and len(set(hw[1:])) >= 4:
-                    result['oem_hw_number'] = hw
-                if not result['oem_sw_number'] and len(set(sw[1:])) >= 4:
-                    result['oem_sw_number'] = sw
-            except UnicodeDecodeError:
-                pass
+def _extract_generic(data: bytes, result: dict) -> None:
+    """Extract generic metadata (OEM numbers, engine info, SW version fallback)."""
+    p = GENERIC_PATTERNS
 
-        # Fallback: single A-numbers
-        if not result['oem_hw_number']:
-            mb_parts = re.findall(MERCEDES_PART_PATTERN, data)
-            for part_bytes in mb_parts:
-                try:
-                    val = part_bytes.decode('ascii')
-                    if len(set(val[1:])) >= 4:
-                        result['oem_hw_number'] = val
-                        break
-                except UnicodeDecodeError:
-                    continue
-
-    # ===== Generic patterns (all ECU brands) =====
-
-    # --- VAG OEM part numbers ---
-    oem_matches = re.findall(OEM_NUMBER_PATTERN, data)
+    # --- VAG OEM part numbers (e.g. "03L907309AE") ---
+    oem_matches = re.findall(p['oem_number'], data)
     hw_candidates = []
     sw_candidates = []
 
@@ -287,8 +358,8 @@ def read_bin_metadata(file_path: str) -> dict:
     if sw_candidates and not result['oem_sw_number']:
         result['oem_sw_number'] = sw_candidates[0]
 
-    # --- Engine type + code ---
-    m = re.search(ENGINE_PATTERN, data)
+    # --- Engine type + code (e.g. "R4 2.0l TDI  CFFB") ---
+    m = re.search(p['engine'], data)
     if m:
         try:
             result['engine_type'] = m.group(1).decode('ascii')
@@ -296,9 +367,9 @@ def read_bin_metadata(file_path: str) -> dict:
         except UnicodeDecodeError:
             pass
 
-    # Fallback: engine type without separate engine code (e.g. "R5 2,5L EDC")
+    # Fallback: engine type without separate code (e.g. "R5 2,5L EDC")
     if not result['engine_type']:
-        m = re.search(rb'([RVLI]\d\s+[\d.,]+[lL]\s+[A-Z]{2,6})', data)
+        m = re.search(p['engine_type'], data)
         if m:
             try:
                 result['engine_type'] = m.group(1).decode('ascii')
@@ -307,7 +378,7 @@ def read_bin_metadata(file_path: str) -> dict:
 
     # --- VAG engine code near controller address (e.g. "CAYCJ623") ---
     if not result['engine_code']:
-        m = re.search(VAG_ENGINE_CODE_PATTERN, data)
+        m = re.search(p['vag_engine'], data)
         if m:
             try:
                 result['engine_code'] = m.group(1).decode('ascii')
@@ -316,20 +387,34 @@ def read_bin_metadata(file_path: str) -> dict:
 
     # --- PSA part number from calibration context ---
     if not result['oem_sw_number']:
-        m = re.search(PSA_PART_PATTERN, data)
+        m = re.search(p['psa_part'], data)
         if m:
             try:
                 result['oem_sw_number'] = m.group(1).decode('ascii')
             except UnicodeDecodeError:
                 pass
 
-    # --- SW version (Bosch: 4-5 digit number near OEM block) ---
+    # --- SW version fallback: 4-5 digit number near OEM block ---
     if not result['sw_version']:
         sw_version = _find_sw_version(data, oem_matches)
         if sw_version:
             result['sw_version'] = sw_version
 
-    return result
+    # --- Delphi HW part number fallback (e.g. "28208056") ---
+    # Only for CRD files where no Mercedes A-number or other HW was found
+    if not result['oem_hw_number'] and result.get('_is_delphi_crd'):
+        from ecu_file_organizer.constants import DELPHI_PATTERNS
+        for m in re.finditer(DELPHI_PATTERNS['hw_part'], data):
+            try:
+                val = m.group(1).decode('ascii')
+                if len(set(val)) >= 4:  # filter dummy values
+                    result['oem_hw_number'] = val
+                    break
+            except UnicodeDecodeError:
+                continue
+
+    # Clean up internal flags
+    result.pop('_is_delphi_crd', None)
 
 
 def _find_sw_version(data: bytes, oem_matches: list) -> str:
