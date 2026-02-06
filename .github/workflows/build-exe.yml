@@ -60,8 +60,10 @@ jobs:
           pip install nuitka ordered-set zstandard
 
       - name: Build EXE with Nuitka
+        env:
+          NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
         run: |
-          python -m nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=pyqt6 --nofollow-import-to=PyQt6.QtWebEngine,PyQt6.QtWebEngineCore,PyQt6.QtWebEngineWidgets,PyQt6.QtWebChannel,PyQt6.QtWebSockets,PyQt6.Qt3DCore,PyQt6.Qt3DRender,PyQt6.Qt3DInput,PyQt6.QtMultimedia,PyQt6.QtMultimediaWidgets,PyQt6.QtBluetooth,PyQt6.QtNfc,PyQt6.QtSensors,PyQt6.QtQuick,PyQt6.QtQuickWidgets,PyQt6.QtQml,PyQt6.QtDesigner,PyQt6.QtHelp,PyQt6.QtTest,PyQt6.QtNetwork,PyQt6.QtNetworkAuth,PyQt6.QtOpenGL,PyQt6.QtOpenGLWidgets,PyQt6.QtPdf,PyQt6.QtSvg,PyQt6.QtSvgWidgets,PyQt6.QtXml,PyQt6.QtSql,PyQt6.QtDBus,PyQt6.QtRemoteObjects,PyQt6.QtSerialPort,PyQt6.QtPositioning,PyQt6.QtLocation,PyQt6.QtTextToSpeech,PyQt6.QtSpatialAudio,tkinter,unittest,pydoc,lib2to3,xmlrpc,multiprocessing --output-filename=ECU_File_Organizer.exe ecu_file_organizer.py
+          python -m nuitka --standalone --onefile --windows-console-mode=disable --windows-icon-from-ico=app_icon.ico --enable-plugin=pyqt6 --nofollow-import-to=PyQt6.QtWebEngine,PyQt6.QtWebEngineCore,PyQt6.QtWebEngineWidgets,PyQt6.QtWebChannel,PyQt6.QtWebSockets,PyQt6.Qt3DCore,PyQt6.Qt3DRender,PyQt6.Qt3DInput,PyQt6.QtMultimedia,PyQt6.QtMultimediaWidgets,PyQt6.QtBluetooth,PyQt6.QtNfc,PyQt6.QtSensors,PyQt6.QtQuick,PyQt6.QtQuickWidgets,PyQt6.QtQml,PyQt6.QtDesigner,PyQt6.QtHelp,PyQt6.QtTest,PyQt6.QtNetwork,PyQt6.QtNetworkAuth,PyQt6.QtOpenGL,PyQt6.QtOpenGLWidgets,PyQt6.QtPdf,PyQt6.QtSvg,PyQt6.QtSvgWidgets,PyQt6.QtXml,PyQt6.QtSql,PyQt6.QtDBus,PyQt6.QtRemoteObjects,PyQt6.QtSerialPort,PyQt6.QtPositioning,PyQt6.QtLocation,PyQt6.QtTextToSpeech,PyQt6.QtSpatialAudio,tkinter,unittest,pydoc,lib2to3,xmlrpc,multiprocessing --output-filename=ECU_File_Organizer.exe ecu_file_organizer.py
 
       - name: Rename EXE with version
         run: |
