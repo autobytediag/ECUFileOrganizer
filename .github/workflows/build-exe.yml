@@ -128,6 +128,45 @@ jobs:
           path: dist/*.exe
           include-hidden-files: true
 
+      - name: Generate changelog from PRs and commits
+        id: changelog
+        shell: bash
+        run: |
+          # Find the previous tag (exclude current)
+          CURRENT_TAG="${{ steps.bump.outputs.tag }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1)
+
+          if [ -z "$PREV_TAG" ]; then
+            # No previous tag - use all commits
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..HEAD"
+          fi
+
+          echo "Generating changelog for range: ${RANGE}"
+
+          # Extract merge commit messages (from PRs)
+          PR_CHANGES=$(git log ${RANGE} --merges --pretty=format:"- %s" 2>/dev/null | grep -v "Bump version" | grep -v "^$" || true)
+
+          # Extract regular commit messages (non-merge, non-bump)
+          COMMIT_CHANGES=$(git log ${RANGE} --no-merges --pretty=format:"- %s" 2>/dev/null | grep -v "Bump version" | grep -v "^$" || true)
+
+          # Combine: prefer PR messages, fall back to commits
+          if [ -n "$PR_CHANGES" ]; then
+            CHANGES="$PR_CHANGES"
+          elif [ -n "$COMMIT_CHANGES" ]; then
+            CHANGES="$COMMIT_CHANGES"
+          else
+            CHANGES="- Bug fixes and improvements"
+          fi
+
+          # Write to output (multiline)
+          {
+            echo "changes<<CHANGELOG_EOF"
+            echo "$CHANGES"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -137,12 +176,8 @@ jobs:
             ## ECU File Organizer v${{ steps.bump.outputs.new }}
 
             ### Download
-            `ECU_File_Organizer_v${{ steps.bump.outputs.new }}.exe` herunterladen und starten - keine Installation nötig.
+            Download and run `ECU_File_Organizer_v${{ steps.bump.outputs.new }}.exe` - no installation required.
 
-            ### Features
-            - Automatische BIN-Datei Erkennung (Bosch, Continental)
-            - SW-Version, OEM-Nummern, ECU-Typ aus BIN auslesen
-            - Professionelle Ordnerstruktur
-            - Log.txt mit allen Metadaten
+            ### Changes
+            ${{ steps.changelog.outputs.changes }}
           files: dist/*.exe
-          generate_release_notes: true
