@@ -96,11 +96,19 @@ namespace ECUFileOrganizer
         // Main UI
         // ====================================================================
 
+        static Icon LoadAppIcon()
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            var stream = asm.GetManifestResourceStream("ECUFileOrganizer.Resources.app_icon.ico");
+            return stream != null ? new Icon(stream) : SystemIcons.Application;
+        }
+
         void InitUI()
         {
             Text = Constants.AppName;
             Size = new Size(620, 580);
             StartPosition = FormStartPosition.CenterScreen;
+            Icon = LoadAppIcon();
 
             // Menu bar
             var menuBar = new MenuStrip();
@@ -312,7 +320,7 @@ namespace ECUFileOrganizer
             _trayIcon = new NotifyIcon
             {
                 Text = Constants.AppName,
-                Icon = Icon ?? SystemIcons.Application,
+                Icon = Icon,
                 Visible = true
             };
 
