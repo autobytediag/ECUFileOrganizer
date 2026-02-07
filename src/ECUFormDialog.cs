@@ -42,6 +42,7 @@ namespace ECUFileOrganizer
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
+            KeyPreview = true;
 
             var layout = new TableLayoutPanel
             {
@@ -136,18 +137,28 @@ namespace ECUFileOrganizer
 
             var saveBtn = new Button
             {
-                Text = "Save && Organize",
+                Text = "Save && Organize  (Ctrl+S)",
                 BackColor = Color.FromArgb(76, 175, 80),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font(Font, FontStyle.Bold),
                 Padding = new Padding(8, 4, 8, 4),
-                AutoSize = true
+                AutoSize = true,
+                Cursor = Cursors.Hand
             };
+            saveBtn.FlatAppearance.BorderSize = 0;
             saveBtn.Click += (s, e) => SaveFile();
             btnPanel.Controls.Add(saveBtn);
 
-            var cancelBtn = new Button { Text = "Cancel", AutoSize = true };
+            var cancelBtn = new Button
+            {
+                Text = "Cancel",
+                AutoSize = true,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Padding = new Padding(8, 4, 8, 4)
+            };
+            cancelBtn.FlatAppearance.BorderColor = Color.FromArgb(180, 180, 180);
             cancelBtn.Click += (s, e) => Close();
             btnPanel.Controls.Add(cancelBtn);
 
@@ -176,6 +187,16 @@ namespace ECUFileOrganizer
 
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, string lParam);
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.S))
+            {
+                SaveFile();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
 
         void UpdatePreview()
         {

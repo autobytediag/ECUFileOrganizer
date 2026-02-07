@@ -9,7 +9,7 @@ using Microsoft.Win32;
 
 namespace ECUFileOrganizer
 {
-    /// <summary>Main application window with system tray, monitoring and all dialogs.</summary>
+    /// <summary>Main application window with tabs, system tray, monitoring and all dialogs.</summary>
     class MainWindow : Form
     {
         readonly AppSettings _settings = new AppSettings();
@@ -17,10 +17,30 @@ namespace ECUFileOrganizer
         NotifyIcon _trayIcon;
         readonly List<ECUFormDialog> _activeDialogs = new List<ECUFormDialog>();
 
+        // Monitor tab
         TextBox _monitorFolderInput, _destFolderInput;
         CheckBox _startupCheckbox, _openFolderCheckbox;
-        Label _statusLabel;
+        Label _monitorStatusLabel;
         Button _startStopBtn;
+
+        // Tabs
+        TabControl _tabControl;
+
+        // Recent tab
+        DataGridView _recentGrid;
+
+        // Search tab
+        TextBox _searchReg, _searchMake, _searchModel, _searchEcu;
+        DataGridView _searchGrid;
+        Label _searchCountLabel;
+        readonly List<Dictionary<string, string>> _searchResults = new List<Dictionary<string, string>>();
+
+        // History tab
+        DataGridView _historyGrid;
+        List<Dictionary<string, string>> _historyFolders = new List<Dictionary<string, string>>();
+
+        // Status bar
+        ToolStripStatusLabel _statusLabel, _versionLabel;
 
         public AppSettings Settings => _settings;
 
@@ -29,6 +49,7 @@ namespace ECUFileOrganizer
             _settings.Load();
             InitUI();
             SetupTray();
+            RestoreGeometry();
             StartMonitoring();
         }
 
@@ -93,8 +114,12 @@ namespace ECUFileOrganizer
         }
 
         // ====================================================================
-        // Main UI
+        // Styling constants & UI helpers
         // ====================================================================
+
+        static readonly Color AccentBlue = Color.FromArgb(33, 150, 243);
+        static readonly Color AccentGreen = Color.FromArgb(76, 175, 80);
+        static readonly Color AccentRed = Color.FromArgb(244, 67, 54);
 
         static Icon LoadAppIcon()
         {
@@ -103,55 +128,151 @@ namespace ECUFileOrganizer
             return stream != null ? new Icon(stream) : SystemIcons.Application;
         }
 
+        static Button CreateButton(string text, Color? bg = null, EventHandler click = null)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                AutoSize = true,
+                FlatStyle = FlatStyle.Flat,
+                Padding = new Padding(6, 2, 6, 2),
+                Cursor = Cursors.Hand
+            };
+            if (bg.HasValue)
+            {
+                btn.BackColor = bg.Value;
+                btn.ForeColor = Color.White;
+                btn.FlatAppearance.BorderSize = 0;
+                btn.Font = new Font(btn.Font, FontStyle.Bold);
+            }
+            else
+            {
+                btn.FlatAppearance.BorderColor = Color.FromArgb(180, 180, 180);
+            }
+            if (click != null) btn.Click += click;
+            return btn;
+        }
+
+        static DataGridView CreateGrid(params string[] columns)
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                RowHeadersVisible = false,
+                BackgroundColor = SystemColors.Window,
+                BorderStyle = BorderStyle.Fixed3D
+            };
+            grid.DefaultCellStyle.SelectionBackColor = AccentBlue;
+            foreach (var col in columns)
+                grid.Columns.Add(col.Replace(" ", ""), col);
+            return grid;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, string lParam);
+
+        // ====================================================================
+        // Main UI
+        // ====================================================================
+
         void InitUI()
         {
-            Text = Constants.AppName;
-            Size = new Size(620, 580);
+            Text = Constants.AppDisplayName;
+            MinimumSize = new Size(650, 550);
+            Size = new Size(750, 620);
             StartPosition = FormStartPosition.CenterScreen;
             Icon = LoadAppIcon();
+            KeyPreview = true;
+            AllowDrop = true;
 
             // Menu bar
             var menuBar = new MenuStrip();
-            var helpMenu = new ToolStripMenuItem("Help");
 
-            helpMenu.DropDownItems.Add("Search Files", null, (s, e) => ShowSearchDialog());
-            helpMenu.DropDownItems.Add("Recent Files", null, (s, e) => ShowRecentFiles());
-            helpMenu.DropDownItems.Add("History", null, (s, e) => ShowEditHistory());
-            helpMenu.DropDownItems.Add(new ToolStripSeparator());
-            helpMenu.DropDownItems.Add("About", null, (s, e) => ShowAbout());
-            helpMenu.DropDownItems.Add(new ToolStripSeparator());
-            helpMenu.DropDownItems.Add("Support the Developer", null, (s, e) => ShowSupport());
+            var fileMenu = new ToolStripMenuItem("&File");
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("&Monitor", null, (s, e) => _tabControl.SelectedIndex = 0)
+                { ShortcutKeyDisplayString = "Ctrl+1" });
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("&Recent Files", null, (s, e) => _tabControl.SelectedIndex = 1)
+                { ShortcutKeyDisplayString = "Ctrl+2" });
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("&Search", null, (s, e) => { _tabControl.SelectedIndex = 2; _searchReg?.Focus(); })
+                { ShortcutKeyDisplayString = "Ctrl+3" });
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("&History", null, (s, e) => _tabControl.SelectedIndex = 3)
+                { ShortcutKeyDisplayString = "Ctrl+4" });
+            fileMenu.DropDownItems.Add(new ToolStripSeparator());
+            fileMenu.DropDownItems.Add("Minimize to &Tray", null, (s, e) => Hide());
+            fileMenu.DropDownItems.Add(new ToolStripSeparator());
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("E&xit", null, (s, e) => QuitApplication())
+                { ShortcutKeyDisplayString = "Ctrl+Q" });
 
+            var helpMenu = new ToolStripMenuItem("&Help");
+            helpMenu.DropDownItems.Add("&About", null, (s, e) => ShowAbout());
+            helpMenu.DropDownItems.Add("Support the &Developers", null, (s, e) => ShowSupport());
+
+            menuBar.Items.Add(fileMenu);
             menuBar.Items.Add(helpMenu);
             MainMenuStrip = menuBar;
             Controls.Add(menuBar);
 
-            // Main panel
-            var mainPanel = new Panel
+            // Tab control
+            _tabControl = new TabControl { Dock = DockStyle.Fill };
+
+            var monitorTab = new TabPage("Monitor");
+            var recentTab = new TabPage("Recent Files");
+            var searchTab = new TabPage("Search");
+            var historyTab = new TabPage("History");
+
+            SetupMonitorTab(monitorTab);
+            SetupRecentTab(recentTab);
+            SetupSearchTab(searchTab);
+            SetupHistoryTab(historyTab);
+
+            _tabControl.TabPages.AddRange(new[] { monitorTab, recentTab, searchTab, historyTab });
+            _tabControl.SelectedIndexChanged += (s, e) =>
+            {
+                if (_tabControl.SelectedIndex == 1) RefreshRecentTab();
+                if (_tabControl.SelectedIndex == 3) RefreshHistoryTab();
+            };
+            Controls.Add(_tabControl);
+
+            // Status strip
+            var statusStrip = new StatusStrip();
+            _statusLabel = new ToolStripStatusLabel("Ready") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
+            _versionLabel = new ToolStripStatusLabel($"v{Constants.AppVersion}");
+            statusStrip.Items.AddRange(new ToolStripItem[] { _statusLabel, _versionLabel });
+            Controls.Add(statusStrip);
+
+            // Drag & drop
+            DragEnter += OnDragEnter;
+            DragDrop += OnDragDrop;
+        }
+
+        // ====================================================================
+        // Monitor Tab
+        // ====================================================================
+
+        void SetupMonitorTab(TabPage tab)
+        {
+            tab.Padding = new Padding(15, 10, 15, 10);
+
+            var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(15, 5, 15, 15)
+                ColumnCount = 1,
+                RowCount = 4
             };
-
-            // Title
-            var title = new Label
-            {
-                Text = "ECU File Organizer",
-                Font = new Font(Font.FontFamily, 16, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock = DockStyle.Top,
-                Height = 40
-            };
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             // Settings group
-            var settingsGroup = new GroupBox
-            {
-                Text = "Settings",
-                Dock = DockStyle.Top,
-                Height = 160,
-                Padding = new Padding(10, 5, 10, 10)
-            };
-
+            var settingsGroup = new GroupBox { Text = "Settings", Dock = DockStyle.Fill, Height = 155 };
             var settingsTable = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -177,9 +298,7 @@ namespace ECUFileOrganizer
                 Dock = DockStyle.Fill
             };
             settingsTable.Controls.Add(_monitorFolderInput, 1, 0);
-            var browseMonitor = new Button { Text = "Browse", AutoSize = true };
-            browseMonitor.Click += (s, e) => BrowseMonitorFolder();
-            settingsTable.Controls.Add(browseMonitor, 2, 0);
+            settingsTable.Controls.Add(CreateButton("Browse", click: (s, e) => BrowseMonitorFolder()), 2, 0);
 
             // Destination folder
             settingsTable.Controls.Add(new Label
@@ -195,9 +314,7 @@ namespace ECUFileOrganizer
                 Dock = DockStyle.Fill
             };
             settingsTable.Controls.Add(_destFolderInput, 1, 1);
-            var browseDest = new Button { Text = "Browse", AutoSize = true };
-            browseDest.Click += (s, e) => BrowseDestFolder();
-            settingsTable.Controls.Add(browseDest, 2, 1);
+            settingsTable.Controls.Add(CreateButton("Browse", click: (s, e) => BrowseDestFolder()), 2, 1);
 
             // Startup checkbox
             _startupCheckbox = new CheckBox
@@ -226,572 +343,252 @@ namespace ECUFileOrganizer
             settingsTable.Controls.Add(_openFolderCheckbox, 0, 3);
 
             settingsGroup.Controls.Add(settingsTable);
+            layout.Controls.Add(settingsGroup, 0, 0);
 
             // Status group
             var statusGroup = new GroupBox
             {
                 Text = "Status",
-                Dock = DockStyle.Top,
-                Height = 60
+                Dock = DockStyle.Fill,
+                Height = 55
             };
-            _statusLabel = new Label
+            _monitorStatusLabel = new Label
             {
                 Text = "Monitoring not started",
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(240, 240, 240),
                 Padding = new Padding(10)
             };
-            statusGroup.Controls.Add(_statusLabel);
+            statusGroup.Controls.Add(_monitorStatusLabel);
+            layout.Controls.Add(statusGroup, 0, 1);
 
             // Buttons panel
             var btnPanel = new FlowLayoutPanel
             {
-                Dock = DockStyle.Top,
-                Height = 40,
+                Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
+                Height = 40,
                 Padding = new Padding(0, 5, 0, 5)
             };
 
-            _startStopBtn = new Button { Text = "Start Monitoring", AutoSize = true };
-            _startStopBtn.Click += (s, e) => ToggleMonitoring();
+            _startStopBtn = CreateButton("Start Monitoring", AccentGreen, (s, e) => ToggleMonitoring());
             btnPanel.Controls.Add(_startStopBtn);
+            btnPanel.Controls.Add(CreateButton("Minimize to Tray", click: (s, e) => Hide()));
+            btnPanel.Controls.Add(CreateButton("Exit", AccentRed, (s, e) => QuitApplication()));
 
-            var minimizeBtn = new Button { Text = "Minimize to Tray", AutoSize = true };
-            minimizeBtn.Click += (s, e) => Hide();
-            btnPanel.Controls.Add(minimizeBtn);
+            layout.Controls.Add(btnPanel, 0, 2);
 
-            var historyBtn = new Button
-            {
-                Text = "History",
-                AutoSize = true,
-                BackColor = Color.FromArgb(33, 150, 243),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font(Font, FontStyle.Bold)
-            };
-            historyBtn.Click += (s, e) => ShowEditHistory();
-            btnPanel.Controls.Add(historyBtn);
-
-            var exitBtn = new Button
-            {
-                Text = "Exit",
-                AutoSize = true,
-                BackColor = Color.FromArgb(244, 67, 54),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font(Font, FontStyle.Bold)
-            };
-            exitBtn.Click += (s, e) => QuitApplication();
-            btnPanel.Controls.Add(exitBtn);
-
-            // Support link
+            // Support link at bottom
+            var supportPanel = new Panel { Dock = DockStyle.Fill };
             var supportLabel = new LinkLabel
             {
-                Text = "If you like this app, you can support me on: Buy Me a Coffee",
-                Dock = DockStyle.Top,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Height = 30,
-                Padding = new Padding(10)
+                Text = "If you like this app, you can support us on: Buy Me a Coffee",
+                TextAlign = ContentAlignment.BottomCenter,
+                Dock = DockStyle.Bottom,
+                Height = 30
             };
-            int linkStart = "If you like this app, you can support me on: ".Length;
+            int linkStart = "If you like this app, you can support us on: ".Length;
             supportLabel.Links.Add(linkStart, "Buy Me a Coffee".Length, Constants.SupportUrl);
             supportLabel.LinkClicked += (s, e) =>
             {
                 try { Process.Start(new ProcessStartInfo(e.Link.LinkData.ToString()) { UseShellExecute = true }); }
                 catch { }
             };
+            supportPanel.Controls.Add(supportLabel);
+            layout.Controls.Add(supportPanel, 0, 3);
 
-            // Add to main panel (top to bottom via Dock.Top, added in reverse)
-            mainPanel.Controls.Add(supportLabel);
-            mainPanel.Controls.Add(btnPanel);
-            mainPanel.Controls.Add(statusGroup);
-            mainPanel.Controls.Add(settingsGroup);
-            mainPanel.Controls.Add(title);
-
-            Controls.Add(mainPanel);
+            tab.Controls.Add(layout);
         }
 
         // ====================================================================
-        // System tray
+        // Recent Files Tab
         // ====================================================================
 
-        void SetupTray()
+        void SetupRecentTab(TabPage tab)
         {
-            _trayIcon = new NotifyIcon
+            tab.Padding = new Padding(10);
+
+            var layout = new TableLayoutPanel
             {
-                Text = Constants.AppName,
-                Icon = Icon,
-                Visible = true
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3
             };
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var trayMenu = new ContextMenuStrip();
-            trayMenu.Items.Add("Show Window", null, (s, e) => { Show(); WindowState = FormWindowState.Normal; BringToFront(); });
-            trayMenu.Items.Add(new ToolStripSeparator());
-            trayMenu.Items.Add("Quit", null, (s, e) => QuitApplication());
-            _trayIcon.ContextMenuStrip = trayMenu;
-
-            _trayIcon.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; BringToFront(); };
-        }
-
-        public void ShowTrayMessage(string title, string text, ToolTipIcon icon, int timeout)
-        {
-            _trayIcon?.ShowBalloonTip(timeout, title, text, icon);
-        }
-
-        // ====================================================================
-        // Folder browsing
-        // ====================================================================
-
-        void BrowseMonitorFolder()
-        {
-            using (var dlg = new FolderBrowserDialog
+            var info = new Label
             {
-                Description = "Select Monitor Folder",
-                SelectedPath = _settings.MonitorFolder
-            })
-            {
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-                {
-                    _monitorFolderInput.Text = dlg.SelectedPath;
-                    _settings.MonitorFolder = dlg.SelectedPath;
-                    _settings.Save();
-
-                    if (_monitor != null && _monitor.IsRunning)
-                    {
-                        StopMonitoring();
-                        StartMonitoring();
-                    }
-                }
-            }
-        }
-
-        void BrowseDestFolder()
-        {
-            using (var dlg = new FolderBrowserDialog
-            {
-                Description = "Select Destination Folder",
-                SelectedPath = _settings.DestinationBase
-            })
-            {
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-                {
-                    _destFolderInput.Text = dlg.SelectedPath;
-                    _settings.DestinationBase = dlg.SelectedPath;
-                    _settings.Save();
-                }
-            }
-        }
-
-        // ====================================================================
-        // Startup toggle
-        // ====================================================================
-
-        void ToggleStartup()
-        {
-            if (_startupCheckbox.Checked)
-            {
-                if (AddToStartup())
-                    ShowTrayMessage("Startup Enabled",
-                        "ECU Organizer will start with Windows (minimized to tray)",
-                        ToolTipIcon.Info, 2000);
-            }
-            else
-            {
-                if (RemoveFromStartup())
-                    ShowTrayMessage("Startup Disabled",
-                        "ECU Organizer will not start with Windows",
-                        ToolTipIcon.Info, 2000);
-            }
-        }
-
-        // ====================================================================
-        // File monitoring
-        // ====================================================================
-
-        void StartMonitoring()
-        {
-            try { Directory.CreateDirectory(_settings.DestinationBase); } catch { }
-
-            _monitor = new FileMonitor(_settings.MonitorFolder);
-            _monitor.FileDetected += filePath =>
-            {
-                // Thread-safe UI update
-                if (InvokeRequired)
-                    BeginInvoke(new Action(() => HandleNewFile(filePath)));
-                else
-                    HandleNewFile(filePath);
+                Text = "Recently organized files. Double-click to open folder.",
+                ForeColor = Color.Gray,
+                Dock = DockStyle.Fill,
+                Height = 25
             };
-            _monitor.Start();
+            layout.Controls.Add(info, 0, 0);
 
-            _statusLabel.Text = $"Monitoring: {_settings.MonitorFolder}";
-            _statusLabel.BackColor = Color.FromArgb(212, 237, 218);
-            _statusLabel.ForeColor = Color.FromArgb(21, 87, 36);
-            _startStopBtn.Text = "Stop Monitoring";
-
-            _trayIcon.Text = "ECU File Organizer - Monitoring Active";
-            ShowTrayMessage("ECU Organizer", "Monitoring started", ToolTipIcon.Info, 2000);
-        }
-
-        void StopMonitoring()
-        {
-            _monitor?.Stop();
-
-            _statusLabel.Text = "Monitoring stopped";
-            _statusLabel.BackColor = Color.FromArgb(240, 240, 240);
-            _statusLabel.ForeColor = SystemColors.ControlText;
-            _startStopBtn.Text = "Start Monitoring";
-
-            _trayIcon.Text = "ECU File Organizer - Monitoring Stopped";
-        }
-
-        void ToggleMonitoring()
-        {
-            if (_monitor != null && _monitor.IsRunning)
-                StopMonitoring();
-            else
-                StartMonitoring();
-        }
-
-        void HandleNewFile(string filePath)
-        {
-            string filename = Path.GetFileName(filePath);
-            var parsedData = FileParser.ParseBinFile(filePath);
-
-            ShowFileForm(filePath, parsedData);
-
-            ShowTrayMessage("New ECU File", $"File detected: {filename}", ToolTipIcon.Info, 3000);
-        }
-
-        void ShowFileForm(string filePath, Dictionary<string, string> parsedData)
-        {
-            var dialog = new ECUFormDialog(filePath, parsedData, _settings.DestinationBase, this);
-            dialog.FileSaved += OnFileSaved;
-            dialog.FormClosed += (s, e) => _activeDialogs.Remove(dialog);
-            _activeDialogs.Add(dialog);
-            dialog.Show();
-        }
-
-        void OnFileSaved(string destPath)
-        {
-            _settings.AddRecentFile(destPath);
-
-            ShowTrayMessage("File Organized", $"File saved to:\n{destPath}", ToolTipIcon.Info, 3000);
-        }
-
-        // ====================================================================
-        // Window close → minimize to tray
-        // ====================================================================
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (e.CloseReason == CloseReason.UserClosing)
+            _recentGrid = CreateGrid("Time", "Make", "Folder", "File");
+            _recentGrid.CellDoubleClick += (s, e) =>
             {
-                e.Cancel = true;
-                Hide();
-                ShowTrayMessage("ECU Organizer", "Application minimized to tray",
-                    ToolTipIcon.Info, 2000);
-                return;
-            }
-            base.OnFormClosing(e);
-        }
-
-        void QuitApplication()
-        {
-            StopMonitoring();
-            _trayIcon.Visible = false;
-            _trayIcon.Dispose();
-            Application.Exit();
-        }
-
-        // ====================================================================
-        // Recent Files dialog
-        // ====================================================================
-
-        void ShowRecentFiles()
-        {
-            var recentFiles = _settings.RecentFiles;
-
-            if (recentFiles.Count == 0)
-            {
-                MessageBox.Show(this,
-                    "No files have been organized yet.\n\nOrganize some files first, then they will appear here.",
-                    "No Recent Files", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            using (var dlg = new Form
-            {
-                Text = "Recent Files",
-                Size = new Size(720, 520),
-                StartPosition = FormStartPosition.CenterParent,
-                MinimumSize = new Size(500, 400)
-            })
-            {
-                var layout = new TableLayoutPanel
+                if (e.RowIndex >= 0 && e.RowIndex < _settings.RecentFiles.Count)
                 {
-                    Dock = DockStyle.Fill,
-                    RowCount = 4,
-                    ColumnCount = 1,
-                    Padding = new Padding(10)
-                };
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-                var title = new Label
-                {
-                    Text = "Recent Files",
-                    Font = new Font(Font.FontFamily, 14, FontStyle.Bold),
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Dock = DockStyle.Fill
-                };
-                layout.Controls.Add(title, 0, 0);
-
-                var info = new Label
-                {
-                    Text = $"Showing last {recentFiles.Count} organized files",
-                    ForeColor = Color.Gray,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Dock = DockStyle.Fill
-                };
-                layout.Controls.Add(info, 0, 1);
-
-                var filesList = new ListBox { Dock = DockStyle.Fill };
-                foreach (var entry in recentFiles)
-                {
-                    string ts = entry.ContainsKey("timestamp") ? entry["timestamp"]?.ToString() : "";
-                    string make = entry.ContainsKey("make") ? entry["make"]?.ToString() : "";
-                    string folderName = entry.ContainsKey("folder_name") ? entry["folder_name"]?.ToString() : "";
-                    filesList.Items.Add($"{ts} - {make} / {folderName}");
-                }
-                if (filesList.Items.Count > 0) filesList.SelectedIndex = 0;
-                layout.Controls.Add(filesList, 0, 2);
-
-                var btnPanel = new FlowLayoutPanel
-                {
-                    Dock = DockStyle.Fill,
-                    FlowDirection = FlowDirection.LeftToRight,
-                    Height = 40
-                };
-
-                var openBtn = new Button
-                {
-                    Text = "Open Folder",
-                    AutoSize = true,
-                    BackColor = Color.FromArgb(76, 175, 80),
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font(Font, FontStyle.Bold)
-                };
-                openBtn.Click += (s, e) =>
-                {
-                    if (filesList.SelectedIndex < 0) return;
-                    string path = recentFiles[filesList.SelectedIndex].ContainsKey("folder_path")
-                        ? recentFiles[filesList.SelectedIndex]["folder_path"]?.ToString() : "";
+                    string path = _settings.RecentFiles[e.RowIndex].ContainsKey("folder_path")
+                        ? _settings.RecentFiles[e.RowIndex]["folder_path"]?.ToString() : "";
                     OpenFolder(path);
-                };
-                btnPanel.Controls.Add(openBtn);
+                }
+            };
+            layout.Controls.Add(_recentGrid, 0, 1);
 
-                var logBtn = new Button
+            var btnPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                Height = 40,
+                Padding = new Padding(0, 5, 0, 0)
+            };
+            btnPanel.Controls.Add(CreateButton("Open Folder", AccentGreen, (s, e) =>
+            {
+                if (_recentGrid.CurrentRow == null) return;
+                int idx = _recentGrid.CurrentRow.Index;
+                if (idx >= 0 && idx < _settings.RecentFiles.Count)
                 {
-                    Text = "View Log",
-                    AutoSize = true,
-                    BackColor = Color.FromArgb(33, 150, 243),
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font(Font, FontStyle.Bold)
-                };
-                logBtn.Click += (s, e) =>
+                    string path = _settings.RecentFiles[idx].ContainsKey("folder_path")
+                        ? _settings.RecentFiles[idx]["folder_path"]?.ToString() : "";
+                    OpenFolder(path);
+                }
+            }));
+            btnPanel.Controls.Add(CreateButton("View Log", AccentBlue, (s, e) =>
+            {
+                if (_recentGrid.CurrentRow == null) return;
+                int idx = _recentGrid.CurrentRow.Index;
+                if (idx >= 0 && idx < _settings.RecentFiles.Count)
                 {
-                    if (filesList.SelectedIndex < 0) return;
-                    string path = recentFiles[filesList.SelectedIndex].ContainsKey("folder_path")
-                        ? recentFiles[filesList.SelectedIndex]["folder_path"]?.ToString() : "";
+                    string path = _settings.RecentFiles[idx].ContainsKey("folder_path")
+                        ? _settings.RecentFiles[idx]["folder_path"]?.ToString() : "";
                     OpenLog(path);
-                };
-                btnPanel.Controls.Add(logBtn);
-
-                // Spacer
-                btnPanel.Controls.Add(new Label { AutoSize = false, Width = 200 });
-
-                var clearBtn = new Button { Text = "Clear History", AutoSize = true };
-                clearBtn.Click += (s, e) =>
+                }
+            }));
+            btnPanel.Controls.Add(CreateButton("Clear History", click: (s, e) =>
+            {
+                if (MessageBox.Show(this,
+                    "Are you sure you want to clear all recent files history?",
+                    "Clear History", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+                    == DialogResult.Yes)
                 {
-                    if (MessageBox.Show(dlg,
-                        "Are you sure you want to clear all recent files history?",
-                        "Clear History", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
-                        == DialogResult.Yes)
-                    {
-                        _settings.RecentFiles.Clear();
-                        _settings.Save();
-                        dlg.Close();
-                        MessageBox.Show(this, "Recent files history has been cleared.",
-                            "History Cleared", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
-                };
-                btnPanel.Controls.Add(clearBtn);
+                    _settings.RecentFiles.Clear();
+                    _settings.Save();
+                    RefreshRecentTab();
+                }
+            }));
+            layout.Controls.Add(btnPanel, 0, 2);
 
-                var closeBtn = new Button { Text = "Close", AutoSize = true };
-                closeBtn.Click += (s, e) => dlg.Close();
-                btnPanel.Controls.Add(closeBtn);
+            tab.Controls.Add(layout);
+        }
 
-                layout.Controls.Add(btnPanel, 0, 3);
-                dlg.Controls.Add(layout);
-                dlg.ShowDialog(this);
+        void RefreshRecentTab()
+        {
+            _recentGrid.Rows.Clear();
+            foreach (var entry in _settings.RecentFiles)
+            {
+                string ts = entry.ContainsKey("timestamp") ? entry["timestamp"]?.ToString() : "";
+                string make = entry.ContainsKey("make") ? entry["make"]?.ToString() : "";
+                string folder = entry.ContainsKey("folder_name") ? entry["folder_name"]?.ToString() : "";
+                string file = entry.ContainsKey("filename") ? entry["filename"]?.ToString() : "";
+                _recentGrid.Rows.Add(ts, make, folder, file);
             }
+            _statusLabel.Text = $"Recent files: {_settings.RecentFiles.Count}";
         }
 
         // ====================================================================
-        // Search & Filter dialog
+        // Search Tab
         // ====================================================================
 
-        void ShowSearchDialog()
+        void SetupSearchTab(TabPage tab)
         {
-            string destBase = _settings.DestinationBase;
-            if (string.IsNullOrEmpty(destBase) || !Directory.Exists(destBase))
+            tab.Padding = new Padding(10);
+
+            var layout = new TableLayoutPanel
             {
-                MessageBox.Show(this,
-                    "Please set the destination folder in Settings first.",
-                    "No Destination Set", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 5
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            using (var dlg = new Form
+            // Search fields group
+            var searchGroup = new GroupBox { Text = "Search Filters", Dock = DockStyle.Fill, Height = 130 };
+            var searchTable = new TableLayoutPanel
             {
-                Text = "Search & Filter Files",
-                Size = new Size(820, 620),
-                StartPosition = FormStartPosition.CenterParent,
-                MinimumSize = new Size(600, 500)
-            })
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 4
+            };
+            searchTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            searchTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            _searchReg = AddSearchField(searchTable, 0, "Registration:", "e.g., AB12345");
+            _searchMake = AddSearchField(searchTable, 1, "Make:", "e.g., Volkswagen");
+            _searchModel = AddSearchField(searchTable, 2, "Model:", "e.g., Golf");
+            _searchEcu = AddSearchField(searchTable, 3, "ECU Type:", "e.g., PCR2.1");
+
+            searchGroup.Controls.Add(searchTable);
+            layout.Controls.Add(searchGroup, 0, 0);
+
+            // Search button
+            var searchBtn = CreateButton("Search", AccentGreen, (s, e) => PerformSearch());
+            searchBtn.Dock = DockStyle.Fill;
+            searchBtn.Height = 35;
+            searchBtn.Font = new Font(searchBtn.Font.FontFamily, 11, FontStyle.Bold);
+            layout.Controls.Add(searchBtn, 0, 1);
+
+            // Results grid
+            _searchGrid = CreateGrid("Make", "Folder Name");
+            _searchGrid.CellDoubleClick += (s, e) =>
             {
-                var layout = new TableLayoutPanel
-                {
-                    Dock = DockStyle.Fill,
-                    RowCount = 6,
-                    ColumnCount = 1,
-                    Padding = new Padding(10)
-                };
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // title
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // search group
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // search button
-                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // results list
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // count label
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // buttons
+                if (e.RowIndex >= 0 && e.RowIndex < _searchResults.Count)
+                    OpenFolder(_searchResults[e.RowIndex]["folder_path"]);
+            };
+            layout.Controls.Add(_searchGrid, 0, 2);
 
-                var title = new Label
-                {
-                    Text = "Search & Filter Files",
-                    Font = new Font(Font.FontFamily, 14, FontStyle.Bold),
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Dock = DockStyle.Fill
-                };
-                layout.Controls.Add(title, 0, 0);
+            // Count label
+            _searchCountLabel = new Label
+            {
+                Text = "Enter search criteria and click Search",
+                ForeColor = Color.Gray,
+                Dock = DockStyle.Fill,
+                Height = 20
+            };
+            layout.Controls.Add(_searchCountLabel, 0, 3);
 
-                // Search fields
-                var searchGroup = new GroupBox { Text = "Search Filters", Dock = DockStyle.Fill, Height = 130 };
-                var searchTable = new TableLayoutPanel
-                {
-                    Dock = DockStyle.Fill,
-                    ColumnCount = 2,
-                    RowCount = 4
-                };
-                searchTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-                searchTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            // Buttons
+            var btnPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                Height = 40,
+                Padding = new Padding(0, 5, 0, 0)
+            };
+            btnPanel.Controls.Add(CreateButton("Open Folder", AccentBlue, (s, e) =>
+            {
+                if (_searchGrid.CurrentRow == null || _searchGrid.CurrentRow.Index < 0) return;
+                int idx = _searchGrid.CurrentRow.Index;
+                if (idx < _searchResults.Count)
+                    OpenFolder(_searchResults[idx]["folder_path"]);
+            }));
+            btnPanel.Controls.Add(CreateButton("View Log", click: (s, e) =>
+            {
+                if (_searchGrid.CurrentRow == null || _searchGrid.CurrentRow.Index < 0) return;
+                int idx = _searchGrid.CurrentRow.Index;
+                if (idx < _searchResults.Count)
+                    OpenLog(_searchResults[idx]["folder_path"]);
+            }));
+            layout.Controls.Add(btnPanel, 0, 4);
 
-                var regInput = AddSearchField(searchTable, 0, "Registration:", "e.g., AB12345");
-                var makeInput = AddSearchField(searchTable, 1, "Make:", "e.g., Volkswagen");
-                var modelInput = AddSearchField(searchTable, 2, "Model:", "e.g., Golf");
-                var ecuInput = AddSearchField(searchTable, 3, "ECU Type:", "e.g., PCR2.1");
-
-                searchGroup.Controls.Add(searchTable);
-                layout.Controls.Add(searchGroup, 0, 1);
-
-                // Search button
-                var searchBtn = new Button
-                {
-                    Text = "Search",
-                    AutoSize = true,
-                    BackColor = Color.FromArgb(76, 175, 80),
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font(Font.FontFamily, 11, FontStyle.Bold),
-                    Dock = DockStyle.Fill,
-                    Height = 35
-                };
-                layout.Controls.Add(searchBtn, 0, 2);
-
-                var resultsList = new ListBox { Dock = DockStyle.Fill };
-                layout.Controls.Add(resultsList, 0, 3);
-
-                var countLabel = new Label
-                {
-                    Text = "Enter search criteria and click Search",
-                    ForeColor = Color.Gray,
-                    Dock = DockStyle.Fill
-                };
-                layout.Controls.Add(countLabel, 0, 4);
-
-                // Store search results for folder access
-                var searchResults = new List<Dictionary<string, string>>();
-
-                searchBtn.Click += (s, e) =>
-                {
-                    PerformSearch(regInput.Text, makeInput.Text, modelInput.Text, ecuInput.Text,
-                        resultsList, countLabel, searchResults);
-                };
-
-                // Bottom buttons
-                var btnPanel = new FlowLayoutPanel
-                {
-                    Dock = DockStyle.Fill,
-                    FlowDirection = FlowDirection.LeftToRight,
-                    Height = 40
-                };
-
-                var openBtn = new Button
-                {
-                    Text = "Open Folder",
-                    AutoSize = true,
-                    BackColor = Color.FromArgb(33, 150, 243),
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font(Font, FontStyle.Bold)
-                };
-                openBtn.Click += (s, e) =>
-                {
-                    if (resultsList.SelectedIndex < 0)
-                    {
-                        MessageBox.Show(dlg, "Please select a folder from the search results first.",
-                            "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
-                    OpenFolder(searchResults[resultsList.SelectedIndex]["folder_path"]);
-                };
-                btnPanel.Controls.Add(openBtn);
-
-                var logBtn = new Button { Text = "View Log", AutoSize = true };
-                logBtn.Click += (s, e) =>
-                {
-                    if (resultsList.SelectedIndex < 0)
-                    {
-                        MessageBox.Show(dlg, "Please select a folder from the search results first.",
-                            "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
-                    OpenLog(searchResults[resultsList.SelectedIndex]["folder_path"]);
-                };
-                btnPanel.Controls.Add(logBtn);
-
-                btnPanel.Controls.Add(new Label { AutoSize = false, Width = 300 });
-
-                var closeBtn = new Button { Text = "Close", AutoSize = true };
-                closeBtn.Click += (s, e) => dlg.Close();
-                btnPanel.Controls.Add(closeBtn);
-
-                layout.Controls.Add(btnPanel, 0, 5);
-                dlg.Controls.Add(layout);
-                dlg.ShowDialog(this);
-            }
+            tab.Controls.Add(layout);
         }
 
         TextBox AddSearchField(TableLayoutPanel table, int row, string label, string placeholder)
@@ -808,34 +605,37 @@ namespace ECUFileOrganizer
             return tb;
         }
 
-        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-        static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, string lParam);
-
-        void PerformSearch(string registration, string make, string model, string ecu,
-            ListBox resultsList, Label countLabel, List<Dictionary<string, string>> results)
+        void PerformSearch()
         {
-            resultsList.Items.Clear();
-            results.Clear();
+            _searchGrid.Rows.Clear();
+            _searchResults.Clear();
 
-            string searchReg = registration.Trim().ToLower();
-            string searchMake = make.Trim().ToLower();
-            string searchModel = model.Trim().ToLower();
-            string searchEcu = ecu.Trim().ToLower();
+            string searchReg = _searchReg.Text.Trim().ToLower();
+            string searchMake = _searchMake.Text.Trim().ToLower();
+            string searchModel = _searchModel.Text.Trim().ToLower();
+            string searchEcu = _searchEcu.Text.Trim().ToLower();
 
             if (searchReg == "" && searchMake == "" && searchModel == "" && searchEcu == "")
             {
-                countLabel.Text = "Please enter at least one search criterion";
-                countLabel.ForeColor = Color.FromArgb(255, 152, 0);
+                _searchCountLabel.Text = "Please enter at least one search criterion";
+                _searchCountLabel.ForeColor = Color.FromArgb(255, 152, 0);
                 return;
             }
 
-            countLabel.Text = "Searching...";
-            countLabel.ForeColor = Color.FromArgb(33, 150, 243);
+            string destBase = _settings.DestinationBase;
+            if (string.IsNullOrEmpty(destBase) || !Directory.Exists(destBase))
+            {
+                _searchCountLabel.Text = "Destination folder not set or doesn't exist";
+                _searchCountLabel.ForeColor = AccentRed;
+                return;
+            }
+
+            _searchCountLabel.Text = "Searching...";
+            _searchCountLabel.ForeColor = AccentBlue;
             Application.DoEvents();
 
             try
             {
-                string destBase = _settings.DestinationBase;
                 foreach (string makeFolder in Directory.GetDirectories(destBase))
                 {
                     string makeName = Path.GetFileName(makeFolder);
@@ -852,7 +652,7 @@ namespace ECUFileOrganizer
 
                         if (match)
                         {
-                            results.Add(new Dictionary<string, string>
+                            _searchResults.Add(new Dictionary<string, string>
                             {
                                 ["folder_path"] = folder,
                                 ["folder_name"] = folderName,
@@ -864,150 +664,104 @@ namespace ECUFileOrganizer
             }
             catch (Exception ex)
             {
-                countLabel.Text = $"Search error: {ex.Message}";
-                countLabel.ForeColor = Color.FromArgb(244, 67, 54);
+                _searchCountLabel.Text = $"Search error: {ex.Message}";
+                _searchCountLabel.ForeColor = AccentRed;
                 return;
             }
 
-            if (results.Count > 0)
+            foreach (var r in _searchResults)
+                _searchGrid.Rows.Add(r["make"], r["folder_name"]);
+
+            if (_searchResults.Count > 0)
             {
-                foreach (var r in results)
-                    resultsList.Items.Add($"{r["make"]} / {r["folder_name"]}");
-                resultsList.SelectedIndex = 0;
-                countLabel.Text = $"Found {results.Count} matching folder(s)";
-                countLabel.ForeColor = Color.FromArgb(76, 175, 80);
+                _searchGrid.ClearSelection();
+                _searchGrid.Rows[0].Selected = true;
+                _searchCountLabel.Text = $"Found {_searchResults.Count} matching folder(s)";
+                _searchCountLabel.ForeColor = AccentGreen;
             }
             else
             {
-                countLabel.Text = "No folders found matching your criteria";
-                countLabel.ForeColor = Color.FromArgb(244, 67, 54);
+                _searchCountLabel.Text = "No folders found matching your criteria";
+                _searchCountLabel.ForeColor = AccentRed;
             }
+
+            _statusLabel.Text = $"Search: {_searchResults.Count} result(s)";
         }
 
         // ====================================================================
-        // Edit History dialog
+        // History Tab
         // ====================================================================
 
-        void ShowEditHistory()
+        void SetupHistoryTab(TabPage tab)
         {
-            try
+            tab.Padding = new Padding(10);
+
+            var layout = new TableLayoutPanel
             {
-                string destBase = _settings.DestinationBase;
-                if (string.IsNullOrEmpty(destBase))
-                {
-                    MessageBox.Show(this,
-                        "Please set the destination folder in Settings first.\n\n"
-                        + "The destination folder is where your organized files are stored.",
-                        "No Destination Set", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-                var folders = GetOrganizedFolders();
-
-                if (folders.Count == 0)
-                {
-                    MessageBox.Show(this,
-                        "No organized folders found.\n\nOrganize some files first, then you can edit them here.",
-                        "No History", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-
-                using (var dlg = new Form
-                {
-                    Text = "Edit Folder History",
-                    Size = new Size(820, 620),
-                    StartPosition = FormStartPosition.CenterParent,
-                    MinimumSize = new Size(600, 400)
-                })
-                {
-                    var layout = new TableLayoutPanel
-                    {
-                        Dock = DockStyle.Fill,
-                        RowCount = 5,
-                        ColumnCount = 1,
-                        Padding = new Padding(10)
-                    };
-                    layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                    layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                    layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                    layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-                    layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-                    var title = new Label
-                    {
-                        Text = "Edit Organized Folders",
-                        Font = new Font(Font.FontFamily, 14, FontStyle.Bold),
-                        TextAlign = ContentAlignment.MiddleCenter,
-                        Dock = DockStyle.Fill
-                    };
-                    layout.Controls.Add(title, 0, 0);
-
-                    var info = new Label
-                    {
-                        Text = "Select a folder from the list below to edit its information.\n"
-                            + "The folder will be renamed based on your changes.",
-                        ForeColor = Color.Gray,
-                        TextAlign = ContentAlignment.MiddleCenter,
-                        Dock = DockStyle.Fill
-                    };
-                    layout.Controls.Add(info, 0, 1);
-
-                    var listLabel = new Label
-                    {
-                        Text = "Recent Folders (max 50):",
-                        Font = new Font(Font, FontStyle.Bold),
-                        Dock = DockStyle.Fill
-                    };
-                    layout.Controls.Add(listLabel, 0, 2);
-
-                    var folderList = new ListBox { Dock = DockStyle.Fill };
-                    foreach (var f in folders.Take(50))
-                        folderList.Items.Add($"{f["make"]} / {f["name"]}");
-                    if (folderList.Items.Count > 0) folderList.SelectedIndex = 0;
-                    layout.Controls.Add(folderList, 0, 3);
-
-                    var btnPanel = new FlowLayoutPanel
-                    {
-                        Dock = DockStyle.Fill,
-                        FlowDirection = FlowDirection.LeftToRight,
-                        Height = 40
-                    };
-
-                    var editBtn = new Button
-                    {
-                        Text = "Edit Selected Folder",
-                        AutoSize = true,
-                        BackColor = Color.FromArgb(33, 150, 243),
-                        ForeColor = Color.White,
-                        FlatStyle = FlatStyle.Flat,
-                        Font = new Font(Font, FontStyle.Bold)
-                    };
-                    editBtn.Click += (s, e) =>
-                    {
-                        int idx = folderList.SelectedIndex;
-                        if (idx >= 0 && idx < folders.Count)
-                            EditSelectedFolder(folders[idx], dlg);
-                    };
-                    btnPanel.Controls.Add(editBtn);
-
-                    btnPanel.Controls.Add(new Label { AutoSize = false, Width = 300 });
-
-                    var closeBtn = new Button { Text = "Close", AutoSize = true };
-                    closeBtn.Click += (s, e) => dlg.Close();
-                    btnPanel.Controls.Add(closeBtn);
-
-                    layout.Controls.Add(btnPanel, 0, 4);
-                    dlg.Controls.Add(layout);
-                    dlg.ShowDialog(this);
-                }
-            }
-            catch (Exception ex)
+            var info = new Label
             {
-                MessageBox.Show(this,
-                    $"Failed to show history:\n\n{ex.Message}\n\nError type: {ex.GetType().Name}",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+                Text = "Organized folders (most recent first). Double-click to edit.",
+                ForeColor = Color.Gray,
+                Dock = DockStyle.Fill,
+                Height = 25
+            };
+            layout.Controls.Add(info, 0, 0);
+
+            _historyGrid = CreateGrid("Make", "Folder Name");
+            _historyGrid.CellDoubleClick += (s, e) =>
+            {
+                if (e.RowIndex >= 0 && e.RowIndex < _historyFolders.Count)
+                    EditSelectedFolder(_historyFolders[e.RowIndex]);
+            };
+            layout.Controls.Add(_historyGrid, 0, 1);
+
+            var btnPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                Height = 40,
+                Padding = new Padding(0, 5, 0, 0)
+            };
+            btnPanel.Controls.Add(CreateButton("Edit Selected", AccentBlue, (s, e) =>
+            {
+                if (_historyGrid.CurrentRow == null) return;
+                int idx = _historyGrid.CurrentRow.Index;
+                if (idx >= 0 && idx < _historyFolders.Count)
+                    EditSelectedFolder(_historyFolders[idx]);
+            }));
+            btnPanel.Controls.Add(CreateButton("Open Folder", AccentGreen, (s, e) =>
+            {
+                if (_historyGrid.CurrentRow == null) return;
+                int idx = _historyGrid.CurrentRow.Index;
+                if (idx >= 0 && idx < _historyFolders.Count)
+                    OpenFolder(_historyFolders[idx]["path"]);
+            }));
+            btnPanel.Controls.Add(CreateButton("Refresh", click: (s, e) => RefreshHistoryTab()));
+
+            layout.Controls.Add(btnPanel, 0, 2);
+            tab.Controls.Add(layout);
         }
+
+        void RefreshHistoryTab()
+        {
+            _historyGrid.Rows.Clear();
+            _historyFolders = GetOrganizedFolders();
+            foreach (var f in _historyFolders.Take(50))
+                _historyGrid.Rows.Add(f["make"], f["name"]);
+            _statusLabel.Text = $"History: {Math.Min(_historyFolders.Count, 50)} of {_historyFolders.Count} folder(s)";
+        }
+
+        // ====================================================================
+        // Folder data helpers
+        // ====================================================================
 
         List<Dictionary<string, string>> GetOrganizedFolders()
         {
@@ -1040,7 +794,6 @@ namespace ECUFileOrganizer
             }
             catch { }
 
-            // Sort by modification time (newest first)
             folders.Sort((a, b) => string.Compare(b["modified"], a["modified"], StringComparison.Ordinal));
             return folders;
         }
@@ -1127,7 +880,11 @@ namespace ECUFileOrganizer
             return data;
         }
 
-        void EditSelectedFolder(Dictionary<string, string> folderInfo, Form parentDialog)
+        // ====================================================================
+        // Edit folder dialog (modal)
+        // ====================================================================
+
+        void EditSelectedFolder(Dictionary<string, string> folderInfo)
         {
             string folderPath = folderInfo["path"];
             string folderName = folderInfo["name"];
@@ -1150,12 +907,12 @@ namespace ECUFileOrganizer
                     ColumnCount = 1,
                     Padding = new Padding(10)
                 };
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // title
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // path
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // form group
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // preview
-                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // spacer
-                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // buttons
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
                 var title = new Label
                 {
@@ -1282,31 +1039,21 @@ namespace ECUFileOrganizer
                     Height = 40
                 };
 
-                var saveBtn = new Button
-                {
-                    Text = "Save Changes",
-                    AutoSize = true,
-                    BackColor = Color.FromArgb(76, 175, 80),
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new Font(Font, FontStyle.Bold)
-                };
-                saveBtn.Click += (s, e) => SaveFolderEdit(
+                var saveBtn = CreateButton("Save Changes", AccentGreen, (s, e) => SaveFolderEdit(
                     folderPath, folderInfo["make"],
                     makeInput.Text.Trim(), modelInput.Text.Trim(),
                     dateInput.Text.Trim(), ecuInput.Text.Trim(),
                     swInput.Text.Trim(), readMethodCombo.SelectedItem?.ToString() ?? "",
                     mileageInput.Text.Trim(), regInput.Text.Trim(),
-                    dlg, parentDialog);
+                    dlg));
                 btnPanel.Controls.Add(saveBtn);
 
-                var cancelBtn = new Button { Text = "Cancel", AutoSize = true };
-                cancelBtn.Click += (s, e) => dlg.Close();
+                var cancelBtn = CreateButton("Cancel", click: (s, e) => dlg.Close());
                 btnPanel.Controls.Add(cancelBtn);
 
                 layout.Controls.Add(btnPanel, 0, 5);
                 dlg.Controls.Add(layout);
-                dlg.ShowDialog(parentDialog);
+                dlg.ShowDialog(this);
             }
         }
 
@@ -1327,7 +1074,7 @@ namespace ECUFileOrganizer
 
         void SaveFolderEdit(string oldPath, string oldMake, string make, string model,
             string date, string ecu, string swVersion, string readMethod,
-            string mileage, string registration, Form editDialog, Form parentDialog)
+            string mileage, string registration, Form editDialog)
         {
             if (make == "" || model == "")
             {
@@ -1394,7 +1141,7 @@ namespace ECUFileOrganizer
                     "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 editDialog.Close();
-                parentDialog.Close();
+                RefreshHistoryTab();
             }
             catch (Exception ex)
             {
@@ -1405,29 +1152,327 @@ namespace ECUFileOrganizer
         }
 
         // ====================================================================
+        // System tray
+        // ====================================================================
+
+        void SetupTray()
+        {
+            _trayIcon = new NotifyIcon
+            {
+                Text = Constants.AppName,
+                Icon = Icon,
+                Visible = true
+            };
+
+            var trayMenu = new ContextMenuStrip();
+            trayMenu.Items.Add("Show Window", null, (s, e) => { Show(); WindowState = FormWindowState.Normal; BringToFront(); });
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add("Quit", null, (s, e) => QuitApplication());
+            _trayIcon.ContextMenuStrip = trayMenu;
+
+            _trayIcon.DoubleClick += (s, e) => { Show(); WindowState = FormWindowState.Normal; BringToFront(); };
+        }
+
+        public void ShowTrayMessage(string title, string text, ToolTipIcon icon, int timeout)
+        {
+            _trayIcon?.ShowBalloonTip(timeout, title, text, icon);
+        }
+
+        // ====================================================================
+        // Folder browsing
+        // ====================================================================
+
+        void BrowseMonitorFolder()
+        {
+            using (var dlg = new FolderBrowserDialog
+            {
+                Description = "Select Monitor Folder",
+                SelectedPath = _settings.MonitorFolder
+            })
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    _monitorFolderInput.Text = dlg.SelectedPath;
+                    _settings.MonitorFolder = dlg.SelectedPath;
+                    _settings.Save();
+
+                    if (_monitor != null && _monitor.IsRunning)
+                    {
+                        StopMonitoring();
+                        StartMonitoring();
+                    }
+                }
+            }
+        }
+
+        void BrowseDestFolder()
+        {
+            using (var dlg = new FolderBrowserDialog
+            {
+                Description = "Select Destination Folder",
+                SelectedPath = _settings.DestinationBase
+            })
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    _destFolderInput.Text = dlg.SelectedPath;
+                    _settings.DestinationBase = dlg.SelectedPath;
+                    _settings.Save();
+                }
+            }
+        }
+
+        // ====================================================================
+        // Startup toggle
+        // ====================================================================
+
+        void ToggleStartup()
+        {
+            if (_startupCheckbox.Checked)
+            {
+                if (AddToStartup())
+                    ShowTrayMessage("Startup Enabled",
+                        "ECU Organizer will start with Windows (minimized to tray)",
+                        ToolTipIcon.Info, 2000);
+            }
+            else
+            {
+                if (RemoveFromStartup())
+                    ShowTrayMessage("Startup Disabled",
+                        "ECU Organizer will not start with Windows",
+                        ToolTipIcon.Info, 2000);
+            }
+        }
+
+        // ====================================================================
+        // File monitoring
+        // ====================================================================
+
+        void StartMonitoring()
+        {
+            try { Directory.CreateDirectory(_settings.DestinationBase); } catch { }
+
+            _monitor = new FileMonitor(_settings.MonitorFolder);
+            _monitor.FileDetected += filePath =>
+            {
+                if (InvokeRequired)
+                    BeginInvoke(new Action(() => HandleNewFile(filePath)));
+                else
+                    HandleNewFile(filePath);
+            };
+            _monitor.Start();
+
+            _monitorStatusLabel.Text = $"Monitoring: {_settings.MonitorFolder}";
+            _monitorStatusLabel.BackColor = Color.FromArgb(212, 237, 218);
+            _monitorStatusLabel.ForeColor = Color.FromArgb(21, 87, 36);
+            _startStopBtn.Text = "Stop Monitoring";
+            _startStopBtn.BackColor = AccentRed;
+
+            _statusLabel.Text = "Monitoring active";
+            _trayIcon.Text = "ECU File Organizer - Monitoring Active";
+            ShowTrayMessage("ECU Organizer", "Monitoring started", ToolTipIcon.Info, 2000);
+        }
+
+        void StopMonitoring()
+        {
+            _monitor?.Stop();
+
+            _monitorStatusLabel.Text = "Monitoring stopped";
+            _monitorStatusLabel.BackColor = Color.FromArgb(240, 240, 240);
+            _monitorStatusLabel.ForeColor = SystemColors.ControlText;
+            _startStopBtn.Text = "Start Monitoring";
+            _startStopBtn.BackColor = AccentGreen;
+
+            _statusLabel.Text = "Monitoring stopped";
+            _trayIcon.Text = "ECU File Organizer - Monitoring Stopped";
+        }
+
+        void ToggleMonitoring()
+        {
+            if (_monitor != null && _monitor.IsRunning)
+                StopMonitoring();
+            else
+                StartMonitoring();
+        }
+
+        void HandleNewFile(string filePath)
+        {
+            string filename = Path.GetFileName(filePath);
+            var parsedData = FileParser.ParseBinFile(filePath);
+
+            ShowFileForm(filePath, parsedData);
+
+            _statusLabel.Text = $"File detected: {filename}";
+            ShowTrayMessage("New ECU File", $"File detected: {filename}", ToolTipIcon.Info, 3000);
+        }
+
+        void ShowFileForm(string filePath, Dictionary<string, string> parsedData)
+        {
+            var dialog = new ECUFormDialog(filePath, parsedData, _settings.DestinationBase, this);
+            dialog.FileSaved += OnFileSaved;
+            dialog.FormClosed += (s, e) => _activeDialogs.Remove(dialog);
+            _activeDialogs.Add(dialog);
+            dialog.Show();
+        }
+
+        void OnFileSaved(string destPath)
+        {
+            _settings.AddRecentFile(destPath);
+            _statusLabel.Text = $"File saved: {Path.GetFileName(destPath)}";
+            ShowTrayMessage("File Organized", $"File saved to:\n{destPath}", ToolTipIcon.Info, 3000);
+        }
+
+        // ====================================================================
+        // Window close / quit / geometry
+        // ====================================================================
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            SaveGeometry();
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+                ShowTrayMessage("ECU Organizer", "Application minimized to tray",
+                    ToolTipIcon.Info, 2000);
+                return;
+            }
+            base.OnFormClosing(e);
+        }
+
+        void QuitApplication()
+        {
+            SaveGeometry();
+            StopMonitoring();
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+            Application.Exit();
+        }
+
+        void SaveGeometry()
+        {
+            if (WindowState == FormWindowState.Normal)
+            {
+                _settings.WindowX = Left;
+                _settings.WindowY = Top;
+                _settings.WindowWidth = Width;
+                _settings.WindowHeight = Height;
+                _settings.Save();
+            }
+        }
+
+        void RestoreGeometry()
+        {
+            if (_settings.WindowX >= 0 && _settings.WindowY >= 0)
+            {
+                var rect = new Rectangle(_settings.WindowX, _settings.WindowY,
+                    _settings.WindowWidth, _settings.WindowHeight);
+                if (Screen.AllScreens.Any(s => s.WorkingArea.IntersectsWith(rect)))
+                {
+                    StartPosition = FormStartPosition.Manual;
+                    Left = _settings.WindowX;
+                    Top = _settings.WindowY;
+                }
+            }
+            if (_settings.WindowWidth > 0 && _settings.WindowHeight > 0)
+            {
+                Width = _settings.WindowWidth;
+                Height = _settings.WindowHeight;
+            }
+        }
+
+        // ====================================================================
         // About / Support dialogs
         // ====================================================================
 
         void ShowAbout()
         {
-            MessageBox.Show(this,
-                $"{Constants.AppDisplayName}\n\n"
-                + "Automatic ECU file organization tool for automotive diagnostics.\n\n"
-                + "Features:\n"
-                + "  - Automatic file monitoring\n"
-                + "  - Smart filename parsing\n"
-                + "  - Read method tracking (OBD, Bench, Boot)\n"
-                + "  - Duplicate detection & intelligent handling\n"
-                + "  - Edit History - Fix mistakes after organizing\n"
-                + "  - Auto-open folder on save\n"
-                + "  - Automatic session Log.txt creation\n"
-                + "  - Search & Filter files\n"
-                + "  - Recent Files list\n"
-                + "  - Professional file organization\n\n"
-                + "Developer: Autobyte Diagnostics\n"
-                + "Year: 2026\n\n"
-                + "Made for automotive professionals",
-                $"About {Constants.AppName}", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using (var dlg = new Form
+            {
+                Text = $"About {Constants.AppName}",
+                Size = new Size(460, 460),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false
+            })
+            {
+                var layout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 1,
+                    RowCount = 5,
+                    Padding = new Padding(20, 15, 20, 15)
+                };
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+                var titleLabel = new Label
+                {
+                    Text = Constants.AppDisplayName,
+                    Font = new Font(Font.FontFamily, 14, FontStyle.Bold),
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Dock = DockStyle.Fill,
+                    Height = 35
+                };
+                layout.Controls.Add(titleLabel, 0, 0);
+
+                var descLabel = new Label
+                {
+                    Text = "Automatic ECU file organization tool\nfor automotive diagnostics.",
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Dock = DockStyle.Fill,
+                    Height = 40
+                };
+                layout.Controls.Add(descLabel, 0, 1);
+
+                var featuresLabel = new Label
+                {
+                    Text = "Features:\n"
+                        + "  - Automatic file monitoring\n"
+                        + "  - Smart filename parsing\n"
+                        + "  - Read method tracking (OBD, Bench, Boot)\n"
+                        + "  - Duplicate detection & intelligent handling\n"
+                        + "  - Edit History - Fix mistakes after organizing\n"
+                        + "  - Auto-open folder on save\n"
+                        + "  - Automatic session Log.txt creation\n"
+                        + "  - Search & Filter files\n"
+                        + "  - Drag & Drop support\n"
+                        + "  - Keyboard shortcuts",
+                    Dock = DockStyle.Fill,
+                    Height = 180
+                };
+                layout.Controls.Add(featuresLabel, 0, 2);
+
+                // Developers with clickable links
+                var devLabel = new LinkLabel
+                {
+                    Text = "Developers: Autobyte Diagnostics, Sn0w3y\nYear: 2026\n\nMade for automotive professionals",
+                    TextAlign = ContentAlignment.TopCenter,
+                    Dock = DockStyle.Fill
+                };
+                // "Developers: " = 12 chars, "Autobyte Diagnostics" = 20, ", " = 2, "Sn0w3y" = 6
+                devLabel.Links.Add(12, 20, "https://github.com/autobytediag");
+                devLabel.Links.Add(34, 6, "https://github.com/Sn0w3y");
+                devLabel.LinkClicked += (s, e) =>
+                {
+                    try { Process.Start(new ProcessStartInfo(e.Link.LinkData.ToString()) { UseShellExecute = true }); }
+                    catch { }
+                };
+                layout.Controls.Add(devLabel, 0, 3);
+
+                var okBtn = CreateButton("OK", AccentBlue, (s, e) => dlg.Close());
+                okBtn.Dock = DockStyle.Right;
+                okBtn.Width = 80;
+                dlg.AcceptButton = okBtn;
+                layout.Controls.Add(okBtn, 0, 4);
+
+                dlg.Controls.Add(layout);
+                dlg.ShowDialog(this);
+            }
         }
 
         void ShowSupport()
@@ -1443,13 +1488,67 @@ namespace ECUFileOrganizer
                 + "  - Develop more professional tools\n\n"
                 + "Click OK to open Buy Me a Coffee\n\n"
                 + "Thank you for your support!",
-                "Support the Developer", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+                "Support the Developers", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
 
             if (result == DialogResult.OK)
             {
                 try { Process.Start(new ProcessStartInfo(Constants.SupportUrl) { UseShellExecute = true }); }
                 catch { }
             }
+        }
+
+        // ====================================================================
+        // Keyboard shortcuts
+        // ====================================================================
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            switch (keyData)
+            {
+                case Keys.Control | Keys.D1: _tabControl.SelectedIndex = 0; return true;
+                case Keys.Control | Keys.D2: _tabControl.SelectedIndex = 1; return true;
+                case Keys.Control | Keys.D3: _tabControl.SelectedIndex = 2; _searchReg?.Focus(); return true;
+                case Keys.Control | Keys.D4: _tabControl.SelectedIndex = 3; return true;
+                case Keys.Control | Keys.M: ToggleMonitoring(); return true;
+                case Keys.Control | Keys.Q: QuitApplication(); return true;
+                case Keys.Control | Keys.F: _tabControl.SelectedIndex = 2; _searchReg?.Focus(); return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        // ====================================================================
+        // Drag & Drop
+        // ====================================================================
+
+        void OnDragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                e.Effect = DragDropEffects.Copy;
+        }
+
+        void OnDragDrop(object sender, DragEventArgs e)
+        {
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            if (files == null) return;
+
+            string[] validExtensions = { ".bin", ".ori", ".mod", ".frf", ".hex", ".sgm" };
+            int count = 0;
+            foreach (var file in files)
+            {
+                string ext = Path.GetExtension(file).ToLower();
+                if (Array.IndexOf(validExtensions, ext) >= 0 && File.Exists(file))
+                {
+                    HandleNewFile(file);
+                    count++;
+                }
+            }
+
+            if (count == 0)
+                MessageBox.Show(this,
+                    "No supported ECU files found.\n\nSupported formats: .bin, .ori, .mod, .frf, .hex, .sgm",
+                    "No Valid Files", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            else
+                _statusLabel.Text = $"Dropped {count} file(s)";
         }
 
         // ====================================================================

@@ -9,7 +9,7 @@ namespace ECUFileOrganizer
         public const string AppVersion = "1.23";
         public const string AppName = "ECU File Organizer";
         public static readonly string AppDisplayName = $"ECU File Organizer v{AppVersion}";
-        public const string SupportUrl = "https://buymeacoffee.com/autobyte";
+        public const string SupportUrl = "https://www.buymeacoffee.com/sn0w3y";
 
         public static readonly string[] EcuBrands =
         {

@@ -20,6 +20,10 @@ namespace ECUFileOrganizer
         public bool RunOnStartup { get; set; }
         public bool OpenFolderOnSave { get; set; }
         public List<Dictionary<string, object>> RecentFiles { get; set; }
+        public int WindowX { get; set; }
+        public int WindowY { get; set; }
+        public int WindowWidth { get; set; }
+        public int WindowHeight { get; set; }
 
         public AppSettings()
         {
@@ -29,6 +33,10 @@ namespace ECUFileOrganizer
             RunOnStartup = true;
             OpenFolderOnSave = true;
             RecentFiles = new List<Dictionary<string, object>>();
+            WindowX = -1;
+            WindowY = -1;
+            WindowWidth = 750;
+            WindowHeight = 620;
         }
 
         public void Load()
@@ -49,6 +57,15 @@ namespace ECUFileOrganizer
                     RunOnStartup = Convert.ToBoolean(dict["run_on_startup"]);
                 if (dict.ContainsKey("open_folder_on_save"))
                     OpenFolderOnSave = Convert.ToBoolean(dict["open_folder_on_save"]);
+
+                if (dict.ContainsKey("window_x"))
+                    WindowX = Convert.ToInt32(dict["window_x"]);
+                if (dict.ContainsKey("window_y"))
+                    WindowY = Convert.ToInt32(dict["window_y"]);
+                if (dict.ContainsKey("window_width"))
+                    WindowWidth = Convert.ToInt32(dict["window_width"]);
+                if (dict.ContainsKey("window_height"))
+                    WindowHeight = Convert.ToInt32(dict["window_height"]);
 
                 if (dict.ContainsKey("recent_files") && dict["recent_files"] is ArrayList arr)
                 {
@@ -76,7 +93,11 @@ namespace ECUFileOrganizer
                     ["destination_base"] = DestinationBase,
                     ["run_on_startup"] = RunOnStartup,
                     ["open_folder_on_save"] = OpenFolderOnSave,
-                    ["recent_files"] = RecentFiles
+                    ["recent_files"] = RecentFiles,
+                    ["window_x"] = WindowX,
+                    ["window_y"] = WindowY,
+                    ["window_width"] = WindowWidth,
+                    ["window_height"] = WindowHeight
                 };
 
                 string json = Json.Serialize(dict);
