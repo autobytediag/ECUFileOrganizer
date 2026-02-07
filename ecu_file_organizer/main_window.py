@@ -981,7 +981,7 @@ class ECUOrganizerMain(QMainWindow):
             "<li>Recent Files list</li>"
             "<li>Professional file organization</li>"
             "</ul>"
-            "<p><b>Developer:</b> Autobyte Diagnostics</p>"
+            "<p><b>Developers:</b> <a href='https://github.com/autobytediag'>Autobyte Diagnostics</a>, <a href='https://github.com/Sn0w3y'>Sn0w3y</a></p>"
             "<p><b>Year:</b> 2026</p>"
             "<p>Made for automotive professionals</p>"
         )
