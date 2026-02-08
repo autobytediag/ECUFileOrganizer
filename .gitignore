@@ -28,6 +28,11 @@ Desktop.ini
 *.exe
 *.spec
 
+# .NET build output
+src/bin/
+src/obj/
+*.pdb
+
 # Byte-compiled
 *.pyc
 *.pyo

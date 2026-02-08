@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Resources\app_icon.ico</ApplicationIcon>
+    <AssemblyTitle>ECU File Organizer</AssemblyTitle>
+    <Company>Autobyte Diagnostics</Company>
+    <Product>ECU File Organizer</Product>
+    <Copyright>Copyright 2026 Autobyte Diagnostics</Copyright>
+    <RootNamespace>ECUFileOrganizer</RootNamespace>
+    <AssemblyName>ECU_File_Organizer</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\app_icon.ico" />
+  </ItemGroup>
+
+</Project>
