@@ -9,15 +9,17 @@ namespace ECUFileOrganizer
     class FileMonitor
     {
         readonly string _monitorFolder;
+        readonly bool _includeSubfolders;
         volatile bool _running;
         Thread _thread;
         readonly HashSet<string> _processedFiles = new HashSet<string>();
 
         public event Action<string> FileDetected;
 
-        public FileMonitor(string monitorFolder)
+        public FileMonitor(string monitorFolder, bool includeSubfolders = false)
         {
             _monitorFolder = monitorFolder;
+            _includeSubfolders = includeSubfolders;
         }
 
         public void Start()
@@ -43,7 +45,9 @@ namespace ECUFileOrganizer
                 {
                     try
                     {
-                        foreach (string file in Directory.GetFiles(_monitorFolder, "*.bin"))
+                        var searchOption = _includeSubfolders
+                            ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                        foreach (string file in Directory.GetFiles(_monitorFolder, "*.bin", searchOption))
                         {
                             if (!_running) break;
                             if (_processedFiles.Contains(file)) continue;

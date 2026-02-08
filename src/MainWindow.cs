@@ -25,7 +25,7 @@ namespace ECUFileOrganizer
 
         // Monitor
         TextBox _monitorFolderInput, _destFolderInput;
-        CheckBox _startupCheckbox, _openFolderCheckbox;
+        CheckBox _startupCheckbox, _openFolderCheckbox, _subfoldersCheckbox;
         Label _monitorStatusLabel;
         Button _startStopBtn;
 
@@ -421,7 +421,7 @@ namespace ECUFileOrganizer
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 3,
-                RowCount = 4,
+                RowCount = 5,
                 AutoSize = true
             };
             settingsTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -487,6 +487,26 @@ namespace ECUFileOrganizer
             };
             settingsTable.SetColumnSpan(_openFolderCheckbox, 3);
             settingsTable.Controls.Add(_openFolderCheckbox, 0, 3);
+
+            _subfoldersCheckbox = new CheckBox
+            {
+                Text = "Include subfolders when monitoring",
+                Checked = _settings.IncludeSubfolders,
+                AutoSize = true,
+                Margin = new Padding(3, 3, 0, 3)
+            };
+            _subfoldersCheckbox.CheckedChanged += (s, e) =>
+            {
+                _settings.IncludeSubfolders = _subfoldersCheckbox.Checked;
+                _settings.Save();
+                if (_monitor != null && _monitor.IsRunning)
+                {
+                    StopMonitoring();
+                    StartMonitoring();
+                }
+            };
+            settingsTable.SetColumnSpan(_subfoldersCheckbox, 3);
+            settingsTable.Controls.Add(_subfoldersCheckbox, 0, 4);
 
             settingsGroup.Controls.Add(settingsTable);
             layout.Controls.Add(settingsGroup, 0, 0);
@@ -1404,7 +1424,7 @@ namespace ECUFileOrganizer
         {
             try { Directory.CreateDirectory(_settings.DestinationBase); } catch { }
 
-            _monitor = new FileMonitor(_settings.MonitorFolder);
+            _monitor = new FileMonitor(_settings.MonitorFolder, _settings.IncludeSubfolders);
             _monitor.FileDetected += filePath =>
             {
                 if (InvokeRequired)

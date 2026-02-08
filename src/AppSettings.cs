@@ -19,6 +19,7 @@ namespace ECUFileOrganizer
         public string DestinationBase { get; set; }
         public bool RunOnStartup { get; set; }
         public bool OpenFolderOnSave { get; set; }
+        public bool IncludeSubfolders { get; set; }
         public List<Dictionary<string, object>> RecentFiles { get; set; }
         public int WindowX { get; set; }
         public int WindowY { get; set; }
@@ -32,6 +33,7 @@ namespace ECUFileOrganizer
             DestinationBase = Path.Combine(desktop, "ECU_files");
             RunOnStartup = true;
             OpenFolderOnSave = true;
+            IncludeSubfolders = false;
             RecentFiles = new List<Dictionary<string, object>>();
             WindowX = -1;
             WindowY = -1;
@@ -57,6 +59,8 @@ namespace ECUFileOrganizer
                     RunOnStartup = Convert.ToBoolean(dict["run_on_startup"]);
                 if (dict.ContainsKey("open_folder_on_save"))
                     OpenFolderOnSave = Convert.ToBoolean(dict["open_folder_on_save"]);
+                if (dict.ContainsKey("include_subfolders"))
+                    IncludeSubfolders = Convert.ToBoolean(dict["include_subfolders"]);
 
                 if (dict.ContainsKey("window_x"))
                     WindowX = Convert.ToInt32(dict["window_x"]);
@@ -93,6 +97,7 @@ namespace ECUFileOrganizer
                     ["destination_base"] = DestinationBase,
                     ["run_on_startup"] = RunOnStartup,
                     ["open_folder_on_save"] = OpenFolderOnSave,
+                    ["include_subfolders"] = IncludeSubfolders,
                     ["recent_files"] = RecentFiles,
                     ["window_x"] = WindowX,
                     ["window_y"] = WindowY,
